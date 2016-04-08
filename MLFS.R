@@ -37,12 +37,7 @@ MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE){
   # initialise alpha
   Ealpha = matrix(0, M, R)
   Elogalpha = matrix(0, M, R)
-  for(j in 1:M){
-    aTmp = aAlpha + 0.5*d[j]
-    bTmp = bAlpha + 0.5*diag(Eww[[j]])
-    Ealpha[j, ] = aTmp / bTmp
-    Elogalpha[j, ] = digamma(aTmp) - log(bTmp)
-  }
+  Ealpha = update_alpha(Ealpha, Eww, d, M, aAlpha, bAlpha)
   
   # initalise gamma
   Egamma = rep(0, M)
@@ -78,12 +73,7 @@ MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE){
     Evv_sum = t(Ev) %*% Ev + sigma_V
     
     ### update alpha
-    for(j in 1:M){
-      aTmp = aAlpha + 0.5*d[j]
-      bTmp = bAlpha + 0.5*diag(Eww[[j]])
-      Ealpha[j, ] = aTmp / bTmp
-      Elogalpha[j, ] = digamma(aTmp) - log(bTmp)
-    }
+    Ealpha = update_alpha(Ealpha, Eww, d, M, aAlpha, bAlpha)
     
     ### update W
     sigma_W = update_sigma_W(Ealpha, Egamma, Evv_sum, M)
@@ -123,26 +113,14 @@ MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE){
         Ew[[j]] = t(Q) %*% Ew[[j]]
         Eww[[j]] = t(Q) %*% Eww[[j]] %*% Q
         # same update for all types
-        sigma_W[[j]] = t(Q) %*% sigma_W[[j]] %*% Q
-        for(j in 1:M){
-          aTmp = aAlpha + 0.5*d[j]
-          bTmp = bAlpha + 0.5*diag(Eww[[j]])
-          Ealpha[j, ] = aTmp / bTmp
-          Elogalpha[j, ] = digamma(aTmp) - log(bTmp)
-        }
+        sigma_W[[j]] = t(Q) %*% sigma_W[[j]] %*% Q        
       }
-    } else{
-      Q = diag(R)
+      Ealpha = update_alpha(Ealpha, Eww, d, M, aAlpha, bAlpha)
+      neg_lowerbound_vw = optimres$value
+    } 
+    else{
+      neg_lowerbound_vw = rotation_f(vecQ, R, Eww, Evv_sum, M, N, C, d)
     }
-    
-    
-    # rotation lower bound, do not rotate at the moment
-    QQinv = solve(Q %*% t(Q))
-    temp = 0
-    for(j in 1:M){
-      temp = temp + sum(d[j] * log(diag(t(Q) %*% Eww[[j]] %*% Q)))
-    }
-    neg_lowerbound_vw = 0.5*temp + 0.5*trace(QQinv %*% Evv_sum) + (N+C-sum(d)) * logdet(Q)
     
     
     ### update beta

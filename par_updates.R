@@ -39,6 +39,15 @@ update_mu_W = function(Eu, Ev, Ew, Egamma, type, d, M, sigmaW){
   return(mu)
 }
 
+update_alpha = function(Ealpha, Eww, d, M, aAlpha, bAlpha){
+  for(j in 1:M){
+    aTmp = aAlpha + 0.5*d[j]
+    bTmp = bAlpha + 0.5*diag(Eww[[j]])
+    Ealpha[j, ] = aTmp / bTmp
+  }
+  return(Ealpha)
+}
+
 update_Z = function(y, N, C, Ez, sigma_beta, Ebetabeta, rho, n_samples = 1000){
   lowerbound_yz = -0.5*rho*trace(Ebetabeta)+0.5*C*logdet(sigma_beta)
   for(i in 1:N){
