@@ -1,15 +1,17 @@
-source("helpers.R")
-source("par_updates.R")
-
-MLFS = function(y, X_list, type, R, max_iter=10){
+MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE){
+  N = length(y)
   M = length(X_list)
   d = sapply(X_list, ncol)
+  C = max(y)
+  if(sum(!(y %in% 1:max(y))) > 0) stop("y must have labels 1, 2, ..., C")
   
   # hyperpars
   aGamma=1e-3
   bGamma=1e-3
   aAlpha=1e-2
   bAlpha=1e-2
+  
+  rho = 1e-2
   
   # initialise cutpoints
   #n_levels = 3
@@ -57,6 +59,7 @@ MLFS = function(y, X_list, type, R, max_iter=10){
   Ebeta = matrix(0, R, C)
   Ebetabeta = Ebeta %*% t(Ebeta)
   
+  pred_acc_train = rep(NA, max_iter)
   for(iter in 1:max_iter){
     # optimise g
     
@@ -108,9 +111,32 @@ MLFS = function(y, X_list, type, R, max_iter=10){
     ### update tau
     
     ### rotate
+    if(rotate){
+      optimres = optim(par = as.numeric(diag(R)), fn = rotation_f, gr = rotation_grad, 
+                       method="BFGS", control = list(maxit=1000), 
+                       R = R, Eww = Eww, Evv_sum = Evv_sum, M = M, N = N, C = C, d = d)
+      Q = matrix(optimres$par, R, R)
+      Qinv = solve(Q)
+      Ev = Ev %*% t(Qinv)
+      Evv_sum = Qinv %*% Evv_sum %*% t(Qinv)
+      for(j in 1:M){
+        Ew[[j]] = t(Q) %*% Ew[[j]]
+        Eww[[j]] = t(Q) %*% Eww[[j]] %*% Q
+        # same update for all types
+        sigma_W[[j]] = t(Q) %*% sigma_W[[j]] %*% Q
+        for(j in 1:M){
+          aTmp = aAlpha + 0.5*d[j]
+          bTmp = bAlpha + 0.5*diag(Eww[[j]])
+          Ealpha[j, ] = aTmp / bTmp
+          Elogalpha[j, ] = digamma(aTmp) - log(bTmp)
+        }
+      }
+    } else{
+      Q = diag(R)
+    }
+    
     
     # rotation lower bound, do not rotate at the moment
-    Q = diag(R)
     QQinv = solve(Q %*% t(Q))
     temp = 0
     for(j in 1:M){
@@ -120,7 +146,6 @@ MLFS = function(y, X_list, type, R, max_iter=10){
     
     
     ### update beta
-    rho = 1e-2
     sigma_beta = solve(Evv_sum + rho * diag(R))
     Ebeta = sigma_beta %*% t(Ev) %*% Ez
     Ebetabeta = Ebeta %*% t(Ebeta) + sigma_beta
@@ -128,34 +153,20 @@ MLFS = function(y, X_list, type, R, max_iter=10){
     ### classification
     Ez = Ev %*% Ebeta
     ypred = apply(Ez, 1, which.max)
+    pred_acc_train[iter] = mean(ypred == y)
     
     ### update z
-    n_samples = 1000
-    lowerbound_yz = -0.5*rho*trace(Ebetabeta)+0.5*C*logdet(sigma_beta)
-    for(i in 1:N){
-      others = setdiff(1:C, y[i])
-      z_diff = Ez[i, y[i]] - Ez[i, others]
-      # update for Ez[i, y[i]]
-      Ez[i, y[i]] = sum(Ez[i, ]) - sum(Ez[i, -y[i]])
-      # update for Ez[i, -y[i]], by replacing expectation with empirical approximation
-      z_rep = do.call("rbind", lapply(1:n_samples, function(x)z_diff))
-      u = rnorm(n_samples)
-      u_rep = do.call("cbind", lapply(1:(C-1), function(x)u))
-      cdfs = pnorm(u_rep + z_rep) + 1e-16
-      pdfs = dnorm(u_rep + z_rep) + 1e-16
-      products = apply(cdfs, 1, function(x)exp(sum(log(x))))
-      denom = mean(products)
-      for(k in 1:length(others)){
-        num = mean(products / cdfs[, k] * pdfs[, k])
-        Ez[i, others[k]] = Ez[i, others[k]] - num / denom
-      }
-      lowerbound_yz = lowerbound_yz + log(denom)
-    }
+    obj = update_Z(y, N, C, Ez, sigma_beta, Ebetabeta, rho, n_samples = 1000)
+    Ez = obj$Ez
+    lowerbound_yz = obj$lowerbound_yz
     
     lowerbound_vw = - neg_lowerbound_vw + 0.5*lowerbound_W + 0.5*lowerbound_V
     lowerbound = lowerbound_yz + lowerbound_vw
     
     cat(sprintf("lower bound:\t %1.3f\n", lowerbound))
   }
+  print(Ew)
+  cat("Prediction accuracies (train):", pred_acc_train)
+  
 }
 
