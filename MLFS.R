@@ -110,7 +110,7 @@ MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE){
     Eww = lapply(1:M, function(j)Ew[[j]] %*% t(Ew[[j]]) + d[j] * sigma_W[[j]])
     lowerbound_W = 0
     for(j in 1:M){
-      if(type[j] == "gaussian"){
+      if(type[j] %in% c("gaussian", "ordinal")){
         lowerbound_W = lowerbound_W + d[j]*logdet(sigma_W[[j]])
       }
     }
@@ -119,7 +119,9 @@ MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE){
     ordinal_latent_sum = update_ordinal_latent_sum(X_list, Ev, Ew, n_levels, type)
     
     ### update gamma
-    Egamma = update_gamma(j, g, n_levels, ordinal_counts, Eu, Ev, Ew, Eww, sigma_W, Evv_sum, M, N, d, aGamma, bGamma)
+    obj = update_gamma(j, g, n_levels, ordinal_counts, Eu, Ev, Ew, Eww, sigma_W, Evv_sum, M, N, d, aGamma, bGamma)
+    Egamma = obj$a_tilde / obj$b_tilde
+    lowerbound_xu = -sum(obj$a_tilde * log(obj$b_tilde))
     
     ### update tau
     
@@ -146,6 +148,13 @@ MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE){
       neg_lowerbound_vw = rotation_f(vecQ, R, Eww, Evv_sum, M, N, C, d)
     }
     
+    # update lowerbound XU
+    for(j in 1:M){
+      if(type[j] == "ordinal"){
+        lowerbound_xu = lowerbound_xu + sum(ordinal_counts[[j]] * log(diff(g[[j]])))
+      }
+    }
+    
     
     ### update beta
     sigma_beta = solve(Evv_sum + rho * diag(R))
@@ -163,8 +172,9 @@ MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE){
     lowerbound_yz = obj$lowerbound_yz
     
     lowerbound_vw = - neg_lowerbound_vw + 0.5*lowerbound_W + 0.5*lowerbound_V
-    lowerbound = lowerbound_yz + lowerbound_vw
+    lowerbound = lowerbound_yz + lowerbound_vw + lowerbound_xu
     
+    # cat(sprintf("VW:\t %1.3f\tYZ:\t %1.3f\tXU:\t %1.3f\n", lowerbound_vw, lowerbound_yz, lowerbound_xu))
     cat(sprintf("lower bound:\t %1.3f\n", lowerbound))
   }
   print(Ew)

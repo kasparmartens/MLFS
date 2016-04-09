@@ -9,9 +9,8 @@ update_V_sigmainv = function(Egamma, Eww, Ebetabeta, R, M){
 update_V_mu_individual_i = function(i, Eu, Ew, Egamma, Ez, Ebeta, M, type){
   mu = Ez[i, ] %*% t(Ebeta)
   for(j in 1:M){
-    if(type[j] == "gaussian"){
-      mu = mu + Egamma[j] * Eu[[j]][i, ] %*% t(Ew[[j]])
-    }
+    # same update rule for all types
+    mu = mu + Egamma[j] * Eu[[j]][i, ] %*% t(Ew[[j]])
   }
   return(mu)
 }
@@ -64,19 +63,19 @@ update_gamma_j_ordinal = function(j, g, n_levels, ordinal_counts, Eu, Ev, Ew, si
 }
 
 update_gamma = function(j, g, n_levels, ordinal_counts, Eu, Ev, Ew, Eww, sigma_W, Evv_sum, M, N, d, aGamma, bGamma){
-  Egamma = rep(NA, M)
+  a_tilde = rep(NA, M)
+  b_tilde = rep(NA, M)
   for(j in 1:M){
-    a_tilde = (aGamma + d[j] * N/2)
+    a_tilde[j] = (aGamma + d[j] * N/2)
     if(type[j] == "gaussian"){
       b = update_gamma_j_gaussian(j, Eu, Ew, Eww, Ev, Evv_sum)
     }
     else if(type[j] == "ordinal"){
       b = update_gamma_j_ordinal(j, g, n_levels, ordinal_counts, Eu, Ev, Ew, sigma_W, Evv_sum)
     }
-    b_tilde = bGamma + b
-    Egamma[j] = a_tilde / b_tilde
+    b_tilde[j] = bGamma + b
   }
-  return(Egamma)
+  return(list(a_tilde = a_tilde, b_tilde = b_tilde))
 }
 
 update_Z = function(y, N, C, Ez, sigma_beta, Ebetabeta, rho, n_samples = 1000){
