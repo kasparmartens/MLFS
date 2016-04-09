@@ -12,20 +12,21 @@ MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE){
   bAlpha=1e-2
   
   rho = 1e-2
-  
-  # initialise cutpoints
-  #n_levels = 3
-  #g_list = lapply(1:M, function(i)seq(-5, 5, n_levels))
+  G = 10
   
   # initialise U
-  Eu = X_list
+  Eu = list()
+  for(j in 1:M){
+    X = X_list[[j]]
+    if(type[j] == "gaussian") Eu[[j]] = X
+    if(type[j] == "ordinal") Eu[[j]] = (X - min(X)) / diff(range(X))*2*G-G
+  }
   
   # initialise V
   allU = do.call("cbind", Eu)
   svd_obj = svd(allU)
   Ev = svd_obj$u[, 1:R]
   sigma_V = 1e-3*diag(R)
-  # Evv_i = lapply(1:nrow(Ev), function(i)Ev[i, ] %*% t(Ev[i, ]) + sigma_V) # for each i there is E(v_i v_i)
   Evv_sum = t(Ev) %*% Ev + sigma_V
   
   # initialise W
@@ -33,6 +34,18 @@ MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE){
   Ew = lapply(Eu, function(U)temp %*% U)
   Eww = lapply(Ew, function(W) W %*% t(W))
   sigma_W = lapply(Ew, function(x)1e-3*diag(R))
+  
+  # initialise cutpoints for ordinal views
+  g = list()
+  n_levels = list()
+  ordinal_counts = list()
+  for(j in which(type == "ordinal")){
+    n_levels_j = max(X_list[[j]])
+    n_levels[[j]] = n_levels_j
+    g[[j]] = seq(-G, G, length=n_levels_j+1)
+    ordinal_counts[[j]] = sapply(1:n_levels_j, function(l)sum(X_list[[j]] == l))
+  }
+  ordinal_latent_sum = update_ordinal_latent_sum(X_list, Ev, Ew, n_levels, type)
   
   # initialise alpha
   Ealpha = matrix(0, M, R)
@@ -44,9 +57,9 @@ MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE){
   Eloggamma = rep(0, M)
   for(j in 1:M){
     a_tilde = (aGamma + d[j] * N/2)
+    # separately for similarity based views
     b_tilde = bGamma + 0.5*norm(Eu[[j]] - Ev %*% Ew[[j]], "F")**2
     Egamma[j] = a_tilde / b_tilde
-    Eloggamma[j] = digamma(a_tilde) - log(b_tilde)
   }
   
   # initialise z and beta
@@ -56,9 +69,24 @@ MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE){
   
   pred_acc_train = rep(NA, max_iter)
   for(iter in 1:max_iter){
-    # optimise g
+    
+    ### optimise g
+    for(j in which(type == "ordinal")){
+      constr = generate_constraints(n_levels[[j]], G)
+      optimres = constrOptim(g[[j]], cutpoints_f, cutpoints_grad, constr$ui[1:5, ], constr$ci[1:5], 
+                  ordinal_counts = ordinal_counts[[j]], ordinal_latent_sum = ordinal_latent_sum[[j]], 
+                  Egamma_j = Egamma[[j]], n_levels = n_levels[[j]])
+      g[[j]] = optimres$par
+    }
     
     ### update U
+    for(j in 1:M){
+      if(type[j] == "ordinal"){
+        for(l in 1:n_levels[[j]]){
+          Eu[[j]][X_list[[j]] == l] = 0.5*sum(g[[j]][l:(l+1)])
+        }
+      }
+    }
     
     ### update V
     sigmainv_V = update_V_sigmainv(Egamma, Eww, Ebetabeta, R, M)
@@ -87,21 +115,17 @@ MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE){
       }
     }
     
-    ### summarize sufficient statistics for ordinal data
+    ### update variable for ordinal data
+    ordinal_latent_sum = update_ordinal_latent_sum(X_list, Ev, Ew, n_levels, type)
     
     ### update gamma
-    for(j in 1:M){
-      a_tilde = (aGamma + d[j] * N/2)
-      b_tilde = bGamma + 0.5*trace(Eww[[j]] %*% Evv_sum) - 
-        trace(t(Ew[[j]]) %*% t(Ev) %*% Eu[[j]]) + 0.5*sum(Eu[[j]]**2)
-      Egamma[j] = a_tilde / b_tilde
-      Eloggamma[j] = digamma(a_tilde) - log(b_tilde)
-    }
+    Egamma = update_gamma(j, g, n_levels, ordinal_counts, Eu, Ev, Ew, Eww, sigma_W, Evv_sum, M, N, d, aGamma, bGamma)
     
     ### update tau
     
     ### rotate
     if(rotate){
+      # it may be faster to initialise with the previous Q
       optimres = optim(par = as.numeric(diag(R)), fn = rotation_f, gr = rotation_grad, 
                        method="BFGS", control = list(maxit=1000), 
                        R = R, Eww = Eww, Evv_sum = Evv_sum, M = M, N = N, C = C, d = d)

@@ -25,15 +25,13 @@ update_sigma_W = function(Ealpha, Egamma, Evv_sum, M){
   return(sigma)
 }
 
-update_mu_W = function(Eu, Ev, Ew, Egamma, type, d, M, sigmaW){
+update_mu_W = function(Eu, Ev, Ew, Egamma, type, d, M, sigma_W){
   mu = list()
   for(j in 1:M){
-    mu[[j]] = sigmaW[[j]] * Egamma[j]
-    if(type[j] == "gaussian"){
-      temp = sapply(1:ncol(Ew[[j]]), function(which_col){
-        t(Ev) %*% Eu[[j]][, which_col]
-      })
-    }
+    mu[[j]] = sigma_W[[j]] * Egamma[j]
+    temp = sapply(1:ncol(Ew[[j]]), function(which_col){
+      t(Ev) %*% Eu[[j]][, which_col]
+    })
     mu[[j]] = mu[[j]] %*% temp
   }
   return(mu)
@@ -46,6 +44,39 @@ update_alpha = function(Ealpha, Eww, d, M, aAlpha, bAlpha){
     Ealpha[j, ] = aTmp / bTmp
   }
   return(Ealpha)
+}
+
+update_gamma_j_gaussian = function(j, Eu, Ew, Eww, Ev, Evv_sum){
+  b = 0.5*trace(Eww[[j]] %*% Evv_sum) - trace(t(Ew[[j]]) %*% t(Ev) %*% Eu[[j]]) + 0.5*sum(Eu[[j]]**2)
+  return(b)
+}
+
+update_gamma_j_ordinal = function(j, g, n_levels, ordinal_counts, Eu, Ev, Ew, sigma_W, Evv_sum){
+  g = g[[j]]
+  latent = Ev %*% Ew[[j]]
+  b = - sum(2*Eu[[j]] * latent) # note the elementwise multiplication
+  for(l in 1:n_levels[[j]]){
+    b = b + 1/3*(g[l+1]**2 + g[l]**2 + g[l+1]*g[l])*ordinal_counts[[j]][l]
+  }
+  temp_W = Ew[[j]] %*% t(Ew[[j]]) + sigma_W[[j]]
+  b = b + trace(temp_W %*% Evv_sum)
+  return(0.5*b)
+}
+
+update_gamma = function(j, g, n_levels, ordinal_counts, Eu, Ev, Ew, Eww, sigma_W, Evv_sum, M, N, d, aGamma, bGamma){
+  Egamma = rep(NA, M)
+  for(j in 1:M){
+    a_tilde = (aGamma + d[j] * N/2)
+    if(type[j] == "gaussian"){
+      b = update_gamma_j_gaussian(j, Eu, Ew, Eww, Ev, Evv_sum)
+    }
+    else if(type[j] == "ordinal"){
+      b = update_gamma_j_ordinal(j, g, n_levels, ordinal_counts, Eu, Ev, Ew, sigma_W, Evv_sum)
+    }
+    b_tilde = bGamma + b
+    Egamma[j] = a_tilde / b_tilde
+  }
+  return(Egamma)
 }
 
 update_Z = function(y, N, C, Ez, sigma_beta, Ebetabeta, rho, n_samples = 1000){
@@ -70,4 +101,20 @@ update_Z = function(y, N, C, Ez, sigma_beta, Ebetabeta, rho, n_samples = 1000){
     lowerbound_yz = lowerbound_yz + log(denom)
   }
   return(list(Ez = Ez, lowerbound_yz = lowerbound_yz))
+}
+
+# for ordinal data
+update_ordinal_latent_sum_j = function(j, X_list, Ev, Ew, n_levels_j){
+  latent = Ev %*% Ew[[j]]
+  out = sapply(1:n_levels_j, function(l){
+    sum(latent[X_list[[j]] == l])
+  })
+  return(out)
+}
+update_ordinal_latent_sum = function(X_list, Ev, Ew, n_levels, type){
+  out = list()
+  for(j in which(type == "ordinal")){
+    out[[j]] = update_ordinal_latent_sum_j(j, X_list, Ev, Ew, n_levels[[j]])
+  }
+  return(out)
 }
