@@ -73,9 +73,9 @@ MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE){
     ### optimise g
     for(j in which(type == "ordinal")){
       constr = generate_constraints(n_levels[[j]], G)
-      optimres = constrOptim(g[[j]], cutpoints_f, cutpoints_grad, constr$ui[1:5, ], constr$ci[1:5], 
-                  ordinal_counts = ordinal_counts[[j]], ordinal_latent_sum = ordinal_latent_sum[[j]], 
-                  Egamma_j = Egamma[[j]], n_levels = n_levels[[j]])
+      optimres = constrOptim(g[[j]], cutpoints_f, cutpoints_grad, constr$ui, constr$ci, 
+                             ordinal_counts = ordinal_counts[[j]], ordinal_latent_sum = ordinal_latent_sum[[j]], 
+                             Egamma_j = Egamma[[j]], n_levels = n_levels[[j]])
       g[[j]] = optimres$par
     }
     
@@ -83,7 +83,7 @@ MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE){
     for(j in 1:M){
       if(type[j] == "ordinal"){
         for(l in 1:n_levels[[j]]){
-          Eu[[j]][X_list[[j]] == l] = 0.5*sum(g[[j]][l:(l+1)])
+          Eu[[j]][X_list[[j]] == l] = mean(g[[j]][l:(l+1)])
         }
       }
     }
@@ -98,7 +98,7 @@ MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE){
     }
     # Evv_i = lapply(1:nrow(Ev), function(i)t(Ev[i, ]) %*% Ev[i, ] + sigma_V)
     # Evv_sum = matrix_list_sum(Evv_i)
-    Evv_sum = t(Ev) %*% Ev + sigma_V
+    Evv_sum = t(Ev) %*% Ev + N*sigma_V
     
     ### update alpha
     Ealpha = update_alpha(Ealpha, Eww, d, M, aAlpha, bAlpha)
@@ -145,7 +145,7 @@ MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE){
       neg_lowerbound_vw = optimres$value
     } 
     else{
-      neg_lowerbound_vw = rotation_f(vecQ, R, Eww, Evv_sum, M, N, C, d)
+      neg_lowerbound_vw = rotation_f(as.numeric(diag(R)), R, Eww, Evv_sum, M, N, C, d)
     }
     
     # update lowerbound XU
@@ -175,9 +175,9 @@ MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE){
     lowerbound = lowerbound_yz + lowerbound_vw + lowerbound_xu
     
     # cat(sprintf("VW:\t %1.3f\tYZ:\t %1.3f\tXU:\t %1.3f\n", lowerbound_vw, lowerbound_yz, lowerbound_xu))
+    # cat(sprintf("V:  %1.3f\tW: %1.3f\tnegVW: %1.3f\n", lowerbound_V, lowerbound_W, - neg_lowerbound_vw))
     cat(sprintf("lower bound:\t %1.3f\n", lowerbound))
   }
-  print(Ew)
   cat("Prediction accuracies (train):", pred_acc_train)
   
 }

@@ -1,5 +1,5 @@
 update_V_sigmainv = function(Egamma, Eww, Ebetabeta, R, M){
-  sigmainv = diag(R) + matrix_list_sum(Ebetabeta)
+  sigmainv = diag(R) + Ebetabeta
   for(j in 1:M){
     sigmainv = sigmainv + Egamma[j] * Eww[[j]]
   }
