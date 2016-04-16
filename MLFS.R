@@ -52,6 +52,14 @@ MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE){
   Elogalpha = matrix(0, M, R)
   Ealpha = update_alpha(Ealpha, Eww, d, M, aAlpha, bAlpha)
   
+  for(j in 1:M){
+    if(type[j] == "ordinal"){
+      for(l in 1:n_levels[[j]]){
+        Eu[[j]][X_list[[j]] == l] = mean(g[[j]][l:(l+1)])
+      }
+    }
+  }
+  
   # initalise gamma
   Egamma = rep(0, M)
   Eloggamma = rep(0, M)

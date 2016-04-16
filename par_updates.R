@@ -50,14 +50,14 @@ update_gamma_j_gaussian = function(j, Eu, Ew, Eww, Ev, Evv_sum){
   return(b)
 }
 
-update_gamma_j_ordinal = function(j, g, n_levels, ordinal_counts, Eu, Ev, Ew, sigma_W, Evv_sum){
+update_gamma_j_ordinal = function(j, g, n_levels, ordinal_counts, Eu, Ev, Ew, sigma_W, Evv_sum, d){
   g = g[[j]]
   latent = Ev %*% Ew[[j]]
   b = - sum(2*Eu[[j]] * latent) # note the elementwise multiplication
   for(l in 1:n_levels[[j]]){
     b = b + 1/3*(g[l+1]**2 + g[l]**2 + g[l+1]*g[l])*ordinal_counts[[j]][l]
   }
-  temp_W = Ew[[j]] %*% t(Ew[[j]]) + sigma_W[[j]]
+  temp_W = Ew[[j]] %*% t(Ew[[j]]) + d[j]*sigma_W[[j]]
   b = b + trace(temp_W %*% Evv_sum)
   return(0.5*b)
 }
@@ -71,7 +71,7 @@ update_gamma = function(j, g, n_levels, ordinal_counts, Eu, Ev, Ew, Eww, sigma_W
       b = update_gamma_j_gaussian(j, Eu, Ew, Eww, Ev, Evv_sum)
     }
     else if(type[j] == "ordinal"){
-      b = update_gamma_j_ordinal(j, g, n_levels, ordinal_counts, Eu, Ev, Ew, sigma_W, Evv_sum)
+      b = update_gamma_j_ordinal(j, g, n_levels, ordinal_counts, Eu, Ev, Ew, sigma_W, Evv_sum, d)
     }
     b_tilde[j] = bGamma + b
   }
@@ -79,12 +79,11 @@ update_gamma = function(j, g, n_levels, ordinal_counts, Eu, Ev, Ew, Eww, sigma_W
 }
 
 update_Z = function(y, N, C, Ez, sigma_beta, Ebetabeta, rho, n_samples = 1000){
+  muZ = Ez
   lowerbound_yz = -0.5*rho*trace(Ebetabeta)+0.5*C*logdet(sigma_beta)
   for(i in 1:N){
     others = setdiff(1:C, y[i])
     z_diff = Ez[i, y[i]] - Ez[i, others]
-    # update for Ez[i, y[i]]
-    Ez[i, y[i]] = sum(Ez[i, ]) - sum(Ez[i, -y[i]])
     # update for Ez[i, -y[i]], by replacing expectation with empirical approximation
     z_rep = do.call("rbind", lapply(1:n_samples, function(x)z_diff))
     u = rnorm(n_samples)
@@ -97,6 +96,8 @@ update_Z = function(y, N, C, Ez, sigma_beta, Ebetabeta, rho, n_samples = 1000){
       num = mean(products / cdfs[, k] * pdfs[, k])
       Ez[i, others[k]] = Ez[i, others[k]] - num / denom
     }
+    # update for Ez[i, y[i]]
+    Ez[i, y[i]] = sum(muZ[i, ]) - sum(Ez[i, -y[i]])
     lowerbound_yz = lowerbound_yz + log(denom)
   }
   return(list(Ez = Ez, lowerbound_yz = lowerbound_yz))

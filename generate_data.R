@@ -39,7 +39,7 @@ generate_X = function(U_list, type, g_list = NULL){
       g = g_list[[j]]
       temp = matrix(NA, nrow(u), ncol(u))
       for(k in 1:(length(g)-1)){
-        condition = (u > g[k]) & (u < g[k+1])
+        condition = (u > g[k]) & (u <= g[k+1])
         temp[condition] = k
       }
       if(sum(is.na(temp)) > 0) stop("some u values outside of range (-G, G)")

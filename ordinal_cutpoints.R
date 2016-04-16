@@ -14,7 +14,7 @@ cutpoints_grad = function(g, ordinal_counts, ordinal_latent_sum, Egamma_j, n_lev
   for(l in 2:n_levels){
     grad[l] = ordinal_counts[l-1] / (g[l]-g[l-1]) -
       ordinal_counts[l-1] * Egamma_j/6*(2*g[l]+g[l-1]) +
-      0.5*Egamma_j*ordinal_latent_sum[l-1] + 
+      0.5*Egamma_j*ordinal_latent_sum[l-1] - 
       ordinal_counts[l] / (g[l+1]-g[l]) -
       ordinal_counts[l] * Egamma_j/6*(2*g[l]+g[l+1]) +
       0.5*Egamma_j*ordinal_latent_sum[l]
