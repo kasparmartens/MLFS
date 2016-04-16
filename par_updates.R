@@ -6,8 +6,8 @@ update_V_sigmainv = function(Egamma, Eww, Ebetabeta, R, M){
   return(sigmainv)
 }
 
-update_V_mu_individual_i = function(i, Eu, Ew, Egamma, Ez, Ebeta, M, type){
-  mu = Ez[i, ] %*% t(Ebeta)
+update_V_mu_individual_i = function(i, Eu, Ew, Egamma, M){
+  mu = 0
   for(j in 1:M){
     # same update rule for all types
     mu = mu + Egamma[j] * Eu[[j]][i, ] %*% t(Ew[[j]])

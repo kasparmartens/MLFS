@@ -100,9 +100,10 @@ MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE){
     sigmainv_V = update_V_sigmainv(Egamma, Eww, Ebetabeta, R, M)
     sigma_V = solve(sigmainv_V)
     lowerbound_V = N*logdet(sigma_V)
+    Ev = Ez %*% t(Ebeta)
     for(i in 1:N){
-      mu_tmp = update_V_mu_individual_i(i, Eu, Ew, Egamma, Ez, Ebeta, M, type)
-      Ev[i, ] = mu_tmp %*% sigma_V
+      mu_tmp = update_V_mu_individual_i(i, Eu, Ew, Egamma, M)
+      Ev[i, ] = (Ev[i, ] + mu_tmp) %*% sigma_V
     }
     # Evv_i = lapply(1:nrow(Ev), function(i)t(Ev[i, ]) %*% Ev[i, ] + sigma_V)
     # Evv_sum = matrix_list_sum(Evv_i)
@@ -142,6 +143,7 @@ MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE){
       Q = matrix(optimres$par, R, R)
       Qinv = solve(Q)
       Ev = Ev %*% t(Qinv)
+      sigma_V = Qinv %*% sigma_V %*% t(Qinv)
       Evv_sum = Qinv %*% Evv_sum %*% t(Qinv)
       for(j in 1:M){
         Ew[[j]] = t(Q) %*% Ew[[j]]
@@ -187,6 +189,41 @@ MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE){
     cat(sprintf("lower bound:\t %1.3f\n", lowerbound))
   }
   cat("Prediction accuracies (train):", pred_acc_train)
-  
+  return(list(Ebeta = Ebeta, Ew = Ew, sigma_W = sigma_W, sigma_V = sigma_V, Egamma = Egamma, g = g, n_levels = n_levels, type = type, R = R))
 }
 
+
+pred_out_of_sample = function(X_test, MLFSobj){
+  
+  type = MLFSobj$type
+  Ntest = nrow(X_test[[1]])
+  M = length(type)
+  R = MLFSobj$R
+  n_levels = MLFSobj$n_levels
+  
+  Ev = matrix(0, Ntest, R)
+  
+  # compute Eu
+  Eu = list()
+  for(j in 1:M){
+    # initialise Eu (default value for gaussian view)
+    Eu[[j]] = X_test[[j]]
+    if(type[j] == "ordinal"){
+      for(l in 1:n_levels[[j]]){
+        Eu[[j]][X_test[[j]] == l] = mean(MLFSobj$g[[j]][l:(l+1)])
+      }
+    }
+  }
+  
+  # Ev = Ez %*% t(Ebeta)
+  for(j in 1:M){
+    for(i in 1:Ntest){
+      mu_tmp = update_V_mu_individual_i(i, Eu, MLFSobj$Ew, MLFSobj$Egamma, M)
+      Ev[i, ] = mu_tmp %*% MLFSobj$sigma_V
+    }
+  }
+  
+  Ez = Ev %*% MLFSobj$Ebeta
+  ypred = apply(Ez, 1, which.max)
+  return(ypred)
+}
