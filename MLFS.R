@@ -97,7 +97,7 @@ MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE){
     }
     
     ### update V
-    sigmainv_V = update_V_sigmainv(Egamma, Eww, Ebetabeta, R, M)
+    sigmainv_V = update_V_sigmainv(Egamma, Eww, R, M) + Ebetabeta
     sigma_V = solve(sigmainv_V)
     lowerbound_V = N*logdet(sigma_V)
     Ev = Ez %*% t(Ebeta)
@@ -188,8 +188,10 @@ MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE){
     # cat(sprintf("V:  %1.3f\tW: %1.3f\tnegVW: %1.3f\n", lowerbound_V, lowerbound_W, - neg_lowerbound_vw))
     cat(sprintf("lower bound:\t %1.3f\n", lowerbound))
   }
-  cat("Prediction accuracies (train):", pred_acc_train)
-  return(list(Ebeta = Ebeta, Ew = Ew, sigma_W = sigma_W, sigma_V = sigma_V, Egamma = Egamma, g = g, n_levels = n_levels, type = type, R = R))
+  cat("Prediction accuracies (train):", pred_acc_train, "\n")
+  return(list(Ebeta = Ebeta, Ew = Ew, Eww = Eww, sigma_W = sigma_W, sigma_V = sigma_V, 
+              Egamma = Egamma, g = g, n_levels = n_levels, type = type, R = R, 
+              pred_acc_train = pred_acc_train[length(pred_acc_train)]))
 }
 
 
@@ -215,11 +217,11 @@ pred_out_of_sample = function(X_test, MLFSobj){
     }
   }
   
-  # Ev = Ez %*% t(Ebeta)
+  sigma_V = solve(update_V_sigmainv(MLFSobj$Egamma, MLFSobj$Eww, R, M))
   for(j in 1:M){
     for(i in 1:Ntest){
       mu_tmp = update_V_mu_individual_i(i, Eu, MLFSobj$Ew, MLFSobj$Egamma, M)
-      Ev[i, ] = mu_tmp %*% MLFSobj$sigma_V
+      Ev[i, ] = mu_tmp %*% sigma_V
     }
   }
   

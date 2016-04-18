@@ -1,5 +1,5 @@
-update_V_sigmainv = function(Egamma, Eww, Ebetabeta, R, M){
-  sigmainv = diag(R) + Ebetabeta
+update_V_sigmainv = function(Egamma, Eww, R, M){
+  sigmainv = diag(R)
   for(j in 1:M){
     sigmainv = sigmainv + Egamma[j] * Eww[[j]]
   }
