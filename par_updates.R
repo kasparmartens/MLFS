@@ -62,16 +62,34 @@ update_gamma_j_ordinal = function(j, g, n_levels, ordinal_counts, Eu, Ev, Ew, si
   return(0.5*b)
 }
 
-update_gamma = function(j, g, n_levels, ordinal_counts, Eu, Ev, Ew, Eww, sigma_W, Evv_sum, M, N, d, aGamma, bGamma){
+update_gamma_j_similarity = function(j, Eu, Euu, Euu_sum, Ew, Eww, Ev, Evv_sum, X, N, scaling_const){
+  b = trace(Eww[[j]] %*% Evv_sum) - 2*trace(t(Ew[[j]]) %*% t(Ev) %*% Eu[[j]]) + trace(Euu_sum[[j]])
+  temp = sum(X[upper.tri(X)]**2)
+  for(i in 1:(N-1)){
+    sum_trace = 0
+#     for(k in (i+1):N){
+#       sum_trace = sum_trace + sum(Euu[[j]][[i]] * Euu[[j]][[k]]) # trace(Euu[[j]][[i]] %*% Euu[[j]][[k]])
+#     }
+    sum_trace = sum(do.call("rbind", Euu[[j]][rep(i, N-i)]) * do.call("rbind", Euu[[j]][(i+1):N]))
+    temp = temp - 2*as.numeric(X[i, (i+1):N] %*% Eu[[j]][(i+1):N, ] %*% Eu[[j]][i, ]) + sum_trace
+  }
+  return(0.5*(b + scaling_const*temp))
+}
+
+update_gamma = function(j, g, n_levels, ordinal_counts, Eu, Euu, Euu_sum, Ev, Ew, Eww, sigma_W, Evv_sum, X, M, N, d, aGamma, bGamma, scaling_const){
   a_tilde = rep(NA, M)
   b_tilde = rep(NA, M)
   for(j in 1:M){
-    a_tilde[j] = (aGamma + d[j] * N/2)
+    a_tilde[j] = aGamma + d[j] * N/2
     if(type[j] == "gaussian"){
       b = update_gamma_j_gaussian(j, Eu, Ew, Eww, Ev, Evv_sum)
     }
     else if(type[j] == "ordinal"){
       b = update_gamma_j_ordinal(j, g, n_levels, ordinal_counts, Eu, Ev, Ew, sigma_W, Evv_sum, d)
+    }
+    else if(type[j] == "similarity"){
+      a_tilde[j] = a_tilde[j] + 0.25*N*(N-1)
+      b = update_gamma_j_similarity(j, Eu, Euu, Euu_sum, Ew, Eww, Ev, Evv_sum, X, N, scaling_const)
     }
     b_tilde[j] = bGamma + b
   }

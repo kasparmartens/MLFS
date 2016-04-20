@@ -38,3 +38,20 @@ MLFSobj = MLFS(data$trainy, data$trainX, type, R, max_iter=10, rotate=TRUE)
 pred = pred_out_of_sample(data$testX, MLFSobj)
 mean(pred == data$testy)
 
+# similarity
+type = rep("similarity", length(d))
+X0 = generate_X(latent_data$U_list, type)
+data = split_into_train_and_test(X0, y, prop=0.5)
+MLFSobj = MLFS(data$trainy, data$trainX, type, R, max_iter=50, rotate=TRUE, d_sim=5)
+pred = pred_out_of_sample(data$testX, MLFSobj, data$testtrainX)
+mean(pred == data$testy)
+
+# all
+type = c("gaussian", "ordinal", "ordinal", "similarity")
+n_levels = 3
+g_list = lapply(latent_data$U_list, function(x)c(-Inf, quantile(x, 1:(n_levels-1) / n_levels), Inf))
+X0 = generate_X(latent_data$U_list, type, g_list)
+data = split_into_train_and_test(X0, y, prop=0.5)
+MLFSobj = MLFS(data$trainy, data$trainX, type, R, max_iter=10, rotate=TRUE)
+pred = pred_out_of_sample(data$testX, MLFSobj, data$testtrainX)
+mean(pred == data$testy)

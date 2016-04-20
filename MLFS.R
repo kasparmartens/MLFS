@@ -1,7 +1,7 @@
-MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE){
+MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE, d_sim = 5){
   N = length(y)
   M = length(X_list)
-  d = sapply(X_list, ncol)
+  d = ifelse(type != "similarity", sapply(X_list, ncol), d_sim)
   C = max(y)
   if(sum(!(y %in% 1:max(y))) > 0) stop("y must have labels 1, 2, ..., C")
   
@@ -12,14 +12,26 @@ MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE){
   bAlpha=1e-2
   
   rho = 1e-2
+  scaling_const = 0.2
   G = 10
   
   # initialise U
   Eu = list()
+  Euu = list()
+  Euu_sum = list()
   for(j in 1:M){
     X = X_list[[j]]
     if(type[j] == "gaussian") Eu[[j]] = X
     if(type[j] == "ordinal") Eu[[j]] = (X - min(X)) / diff(range(X))*2*G-G
+    if(type[j] == "similarity"){
+      Euu[[j]] = list()
+      svd_obj = svd(X)
+      Eu[[j]] = svd_obj$u[, 1:d[j]] %*% diag(sqrt(svd_obj$d[1:d[j]]))
+      for(i in 1:N){
+        Euu[[j]][[i]] = Eu[[j]][i, ] %*% t(Eu[[j]][i, ]) + 1e-3*diag(d[j])
+      }
+      Euu_sum[[j]] = matrix_list_sum(Euu[[j]])
+    }
   }
   
   # initialise V
@@ -65,9 +77,23 @@ MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE){
   Eloggamma = rep(0, M)
   for(j in 1:M){
     a_tilde = (aGamma + d[j] * N/2)
-    # separately for similarity based views
     b_tilde = bGamma + 0.5*norm(Eu[[j]] - Ev %*% Ew[[j]], "F")**2
+    if(type[j] == "similarity"){
+      a_tilde = a_tilde + 0.25*N*(N-1)
+      temp = 0
+      for(i in 1:(N-1)){
+        residual = X_list[[j]][i, (i+1):N] - Eu[[j]][i, ] %*% t(Eu[[j]][(i+1):N, ])
+        temp = temp + sum(residual**2)
+      }
+      b_tilde = b_tilde + 0.5*scaling_const*temp
+    }
     Egamma[j] = a_tilde / b_tilde
+  }
+  
+  # initialise tau
+  Etau = rep(0, M)
+  for(j in which(type == "similarity")){
+    Etau[j] = scaling_const*Egamma[j]
   }
   
   # initialise z and beta
@@ -93,6 +119,17 @@ MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE){
         for(l in 1:n_levels[[j]]){
           Eu[[j]][X_list[[j]] == l] = mean(g[[j]][l:(l+1)])
         }
+      }
+      if(type[j] == "similarity"){
+        # sigma_U[[j]] = solve(Egamma[j] * diag(d[j]) + Etau[j] * Euu_sum[[j]])
+        for(i in 1:N){
+          Euu_sum_temp = matrix_list_sum(Euu[[j]][setdiff(1:N, i)])
+          sigma_U = solve(Egamma[j] * diag(d[j]) + Etau[j] * Euu_sum_temp)
+          temp = X_list[[j]][i, -i] %*% Eu[[j]][-i, ]
+          Eu[[j]][i, ] = (Etau[j] * temp + Egamma[j] * Ev[i, ] %*% Ew[[j]]) %*% sigma_U
+          Euu[[j]][[i]] = Eu[[j]][i, ] %*% t(Eu[[j]][i, ]) + sigma_U
+        }
+        Euu_sum[[j]] = matrix_list_sum(Euu[[j]])
       }
     }
     
@@ -128,11 +165,14 @@ MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE){
     ordinal_latent_sum = update_ordinal_latent_sum(X_list, Ev, Ew, n_levels, type)
     
     ### update gamma
-    obj = update_gamma(j, g, n_levels, ordinal_counts, Eu, Ev, Ew, Eww, sigma_W, Evv_sum, M, N, d, aGamma, bGamma)
+    obj = update_gamma(j, g, n_levels, ordinal_counts, Eu, Euu, Euu_sum, Ev, Ew, Eww, sigma_W, Evv_sum, X_list[[j]], M, N, d, aGamma, bGamma, scaling_const)
     Egamma = obj$a_tilde / obj$b_tilde
     lowerbound_xu = -sum(obj$a_tilde * log(obj$b_tilde))
     
-    ### update tau
+    ### update tau 
+    for(j in which(type == "similarity")){
+      Etau[j] = scaling_const*Egamma[j]
+    }
     
     ### rotate
     if(rotate){
@@ -163,6 +203,9 @@ MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE){
       if(type[j] == "ordinal"){
         lowerbound_xu = lowerbound_xu + sum(ordinal_counts[[j]] * log(diff(g[[j]])))
       }
+      else if(type[j] == "similarity"){
+        lowerbound_xu = lowerbound_xu + sum(sapply(Euu[[j]], function(uu)0.5*logdet(uu)))
+      }
     }
     
     
@@ -190,18 +233,21 @@ MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE){
   }
   cat("Prediction accuracies (train):", pred_acc_train, "\n")
   return(list(Ebeta = Ebeta, Ew = Ew, Eww = Eww, sigma_W = sigma_W, sigma_V = sigma_V, 
-              Egamma = Egamma, g = g, n_levels = n_levels, type = type, R = R, 
+              Egamma = Egamma, g = g, Etau = Etau, 
+              Eu_train = Eu, Euu_sum_train = Euu_sum, 
+              n_levels = n_levels, type = type, R = R, d = d, d_sim = d_sim, 
               pred_acc_train = pred_acc_train[length(pred_acc_train)]))
 }
 
 
-pred_out_of_sample = function(X_test, MLFSobj){
+pred_out_of_sample = function(X_test, MLFSobj, X_test_train = NULL){
   
   type = MLFSobj$type
   Ntest = nrow(X_test[[1]])
   M = length(type)
   R = MLFSobj$R
   n_levels = MLFSobj$n_levels
+  d = MLFSobj$d
   
   Ev = matrix(0, Ntest, R)
   
@@ -209,10 +255,20 @@ pred_out_of_sample = function(X_test, MLFSobj){
   Eu = list()
   for(j in 1:M){
     # initialise Eu (default value for gaussian view)
-    Eu[[j]] = X_test[[j]]
+    if(type[j] %in% c("gaussian", "ordinal")) Eu[[j]] = X_test[[j]] else Eu[[j]] = matrix(0, Ntest, MLFSobj$d_sim)
     if(type[j] == "ordinal"){
       for(l in 1:n_levels[[j]]){
         Eu[[j]][X_test[[j]] == l] = mean(MLFSobj$g[[j]][l:(l+1)])
+      }
+    }
+    if(type[j] == "similarity"){
+      # sigma_U = solve(MLFSobj$Egamma[j] * diag(MLFSobj$d[j]) + MLFSobj$Etau[j] * MLFSobj$Euu_sum_train[[j]])
+      for(i in 1){
+        Eww = t(MLFSobj$Ew[[j]]) %*% MLFSobj$Ew[[j]] + diag(d[j])*sum(diag(MLFSobj$sigma_W[[j]]))
+        sigma_U_inv = solve(1/MLFSobj$Egamma[j]*diag(d[j]) + Eww) + MLFSobj$Etau[j]*MLFSobj$Euu_sum_train[[j]]
+        # sigma_U = solve(sigma_U_inv)
+        # mu_U = MLFSobj$Etau[j] * X_test_train[[j]][i, ] %*% MLFSobj$Eu_train[[j]] %*% sigma_U
+        Eu[[j]][i, ] = solve(sigma_U_inv, t(MLFSobj$Etau[j] * X_test_train[[j]][i, ] %*% MLFSobj$Eu_train[[j]]))
       }
     }
   }

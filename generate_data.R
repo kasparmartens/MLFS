@@ -28,7 +28,7 @@ generate_y = function(V, C = 2){
 
 
 # Generate X
-generate_X = function(U_list, type, g_list = NULL){
+generate_X = function(U_list, type, g_list = NULL, tau = 0.1){
   X_list = list()
   for(j in 1:length(type)){
     if(type[j] == "gaussian"){
@@ -45,6 +45,11 @@ generate_X = function(U_list, type, g_list = NULL){
       if(sum(is.na(temp)) > 0) stop("some u values outside of range (-G, G)")
       X_list[[j]] = temp
     }
+    else if(type[j] == "similarity"){
+      u = U_list[[j]]
+      N = nrow(u)
+      X_list[[j]] = u %*% t(u) + rnorm(N*N, 0, sqrt(1/tau))
+    }
   }
   return(X_list)
 }
@@ -52,11 +57,21 @@ generate_X = function(U_list, type, g_list = NULL){
 split_into_train_and_test = function(X_list, y, prop = 0.8){
   N = nrow(X_list[[1]])
   trainind = sample(1:N, prop*N)
-  trainX = lapply(X_list, function(mat)mat[trainind, ])
-  testX = lapply(X_list, function(mat)mat[-trainind, ])
+  trainX = list(); testX = list(); testtrainX = list()
+  for(j in 1:length(X_list)){
+    X = X_list[[j]]
+    if(ncol(X) != nrow(X)){
+      trainX[[j]] = X[trainind, ]
+      testX[[j]] = X[-trainind, ]
+    } else{
+      trainX[[j]] = X[trainind, trainind]
+      testX[[j]] = X[-trainind, -trainind]
+      testtrainX[[j]] = X[-trainind, trainind]
+    }
+  }
   trainy = y[trainind]
   testy = y[-trainind]
-  return(list(trainX = trainX, trainy = trainy, testX = testX, testy = testy))
+  return(list(trainX = trainX, trainy = trainy, testX = testX, testy = testy, testtrainX = testtrainX))
 }
 
 add_irrelevant_features = function(X_list, type, n_features){
