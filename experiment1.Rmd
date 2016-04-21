@@ -1,0 +1,106 @@
+---
+output: 
+  html_document:
+    keep_md: true
+---
+
+# Testing MLFS method on simulated data
+
+Generate two views, both with 10 features. Altogether 200 data points (100 for training, 100 for testing). 
+
+- Two Gaussian views
+- One gaussian, one ordinal (with 3 levels)
+- Both ordinal views (both with 3 levels)
+
+```{r, echo=FALSE, message=FALSE}
+source("experiment.R")
+
+H = rbind(c(1, 1), 
+          c(1, 1), 
+          c(1, 0), 
+          c(1, 0), 
+          c(0, 1), 
+          c(0, 1))
+
+set.seed(0)
+R = nrow(H)
+d = c(10, 10)
+
+```
+
+### Sanity check
+
+Perfect scenario (data generated exactly according to the model). 
+
+```{r, echo=FALSE}
+# type = c("gaussian", "gaussian")
+# res1 = experiment0(H, d, type, n_rep = 5)
+# type = c("gaussian", "ordinal")
+# res2 = experiment0(H, d, type, n_rep = 5)
+# type = c("ordinal", "ordinal")
+# res3 = experiment0(H, d, type, n_rep = 5)
+# res = data.frame(rbind(res1, res2, res3), type = rep(c("gaussian + gaussian", "gaussian + ordinal", "ordinal + ordinal"), each=nrow(res1)))
+load("temp_res0.RData")
+df.m = res %>%
+  melt(measure.vars = c("train", "test")) 
+
+ggplot(df.m, aes(variable, value, col=variable)) + 
+  geom_boxplot() + facet_wrap(~ type) + 
+  theme_bw() + ylim(0, 1) + 
+  ylab("Prediction accuracy") + xlab("") + 
+  scale_color_brewer(palette="Set1")
+
+```
+
+
+
+### Can the model handle large number of irrelevant features?
+
+Each view has (10 + irrelevant) features now
+
+```{r, echo=FALSE}
+# n_irrelevant_features = c(0, 10, 100, 1000, 10000)
+# type = c("gaussian", "gaussian")
+# res1 = experiment1(n_irrelevant_features, H, d, type, n_rep = 5)
+# type = c("gaussian", "ordinal")
+# res2 = experiment1(n_irrelevant_features, H, d, type, n_rep = 5)
+# type = c("ordinal", "ordinal")
+# res3 = experiment1(n_irrelevant_features, H, d, type, n_rep = 5)
+# res = data.frame(rbind(res1, res2, res3), type = rep(c("gaussian + gaussian", "gaussian + ordinal", "ordinal + ordinal"), each=nrow(res1)))
+# save(res, file="temp_res1.RData")
+load("temp_res1.RData")
+df.m = res %>%
+  melt(measure.vars = c("train", "test")) 
+
+ggplot(df.m, aes(factor(n_irrelevant_features), value, col=variable)) + 
+  geom_boxplot() + facet_wrap(~ type) + 
+  theme_bw() + ylim(0, 1) + 
+  xlab("Number of irrelevant features") + ylab("Prediction accuracy") + 
+  scale_color_brewer(palette="Set1")
+```
+
+### What if the dimensionality of latent space is misspecified?
+
+In the generated data, the underlying latent space was 6-dimensional. When fitting the model, lets consider misspecified values $\{2, 4 < 6 < 10, 20\}$. 
+
+```{r, echo=FALSE}
+# R_values = c(2, 4, 10, 20)
+# type = c("gaussian", "gaussian")
+# res1 = experiment2(R_values, H, d, type, n_rep = 5)
+# type = c("gaussian", "ordinal")
+# res2 = experiment2(R_values, H, d, type, n_rep = 5)
+# type = c("ordinal", "ordinal")
+# res3 = experiment2(R_values, H, d, type, n_rep = 5)
+# res = data.frame(rbind(res1, res2, res3), type = rep(c("gaussian + gaussian", "gaussian + ordinal", "ordinal + ordinal"), each=nrow(res1)))
+# save(res, file="temp_res2.RData")
+load("temp_res2.RData")
+df.m = res %>%
+  melt(measure.vars = c("train", "test")) 
+
+ggplot(df.m, aes(factor(latent_dim), value, col=variable)) + 
+  geom_boxplot() + facet_wrap(~ type) + 
+  theme_bw() + ylim(0, 1) + 
+  xlab("Latent space dimensionality") + ylab("Prediction accuracy") + 
+  scale_color_brewer(palette="Set1")
+
+```

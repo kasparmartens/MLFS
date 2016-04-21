@@ -1,4 +1,4 @@
-MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE, d_sim = 5){
+MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE, d_sim = 5, verbose = TRUE){
   N = length(y)
   M = length(X_list)
   d = ifelse(type != "similarity", sapply(X_list, ncol), d_sim)
@@ -229,9 +229,9 @@ MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE, d_sim = 5){
     
     # cat(sprintf("VW:\t %1.3f\tYZ:\t %1.3f\tXU:\t %1.3f\n", lowerbound_vw, lowerbound_yz, lowerbound_xu))
     # cat(sprintf("V:  %1.3f\tW: %1.3f\tnegVW: %1.3f\n", lowerbound_V, lowerbound_W, - neg_lowerbound_vw))
-    cat(sprintf("lower bound:\t %1.3f\n", lowerbound))
+    if(verbose) cat(sprintf("lower bound:\t %1.3f\n", lowerbound))
   }
-  cat("Prediction accuracies (train):", pred_acc_train, "\n")
+  if(verbose) cat("Prediction accuracies (train):", pred_acc_train, "\n")
   return(list(Ebeta = Ebeta, Ew = Ew, Eww = Eww, sigma_W = sigma_W, sigma_V = sigma_V, 
               Egamma = Egamma, g = g, Etau = Etau, 
               Eu_train = Eu, Euu_sum_train = Euu_sum, 
