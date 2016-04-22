@@ -35,9 +35,12 @@ Generate two views, both with 10 features. Altogether 200 data points (100 for t
 - One gaussian, one ordinal (with 3 levels)
 - Both ordinal views (both with 3 levels)
 
+Example of the sparse weight matrix $[W^{(1)}, W^{(2)}]$ shown here. 
+
+
+![](experiment1_files/figure-html/unnamed-chunk-1-1.png)
+
 Performance ("prediction accuracy") reported as the proportion of correct classifications. 
-
-
 
 ### Sanity check
 
