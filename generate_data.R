@@ -4,14 +4,13 @@ rsparsematrix = function(m, n, binary_vector){
 }
 
 
-generate_latent_subspace = function(H, N = 100, d = c(5, 5, 5, 5)){
+generate_latent_subspace = function(H, N = 100, d = c(5, 5, 5, 5), gamma=1000){
   R = nrow(H)
   
   V = matrix(rnorm(N*R), N, R)
+  W_list = lapply(1:length(d), function(j)rsparsematrix(R, d[j], H[, j]))
   
-  W_list = lapply(1:ncol(H), function(j)rsparsematrix(R, d[j], H[, j]))
-  
-  U_list = lapply(W_list, function(W) V %*% W)
+  U_list = lapply(W_list, function(W) V %*% W + rnorm(N*ncol(W), 0, 1/sqrt(gamma)))
   
   return(list(U_list = U_list, W_list = W_list, V = V, beta = beta))
 }
