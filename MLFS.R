@@ -102,6 +102,7 @@ MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE, d_sim = 5, verbose
   Ebetabeta = Ebeta %*% t(Ebeta)
   
   pred_acc_train = rep(NA, max_iter)
+  lowerbound = rep(NA, max_iter)
   for(iter in 1:max_iter){
     
     ### optimise g
@@ -165,7 +166,7 @@ MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE, d_sim = 5, verbose
     ordinal_latent_sum = update_ordinal_latent_sum(X_list, Ev, Ew, n_levels, type)
     
     ### update gamma
-    obj = update_gamma(j, g, n_levels, ordinal_counts, Eu, Euu, Euu_sum, Ev, Ew, Eww, sigma_W, Evv_sum, X_list[[j]], M, N, d, aGamma, bGamma, scaling_const)
+    obj = update_gamma(j, g, n_levels, ordinal_counts, Eu, Euu, Euu_sum, Ev, Ew, Eww, sigma_W, Evv_sum, X_list[[j]], M, N, d, type, aGamma, bGamma, scaling_const)
     Egamma = obj$a_tilde / obj$b_tilde
     lowerbound_xu = -sum(obj$a_tilde * log(obj$b_tilde))
     
@@ -177,9 +178,15 @@ MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE, d_sim = 5, verbose
     ### rotate
     if(rotate){
       # it may be faster to initialise with the previous Q
-      optimres = optim(par = as.numeric(diag(R)), fn = rotation_f, gr = rotation_grad, 
-                       method="BFGS", control = list(maxit=1000), 
-                       R = R, Eww = Eww, Evv_sum = Evv_sum, M = M, N = N, C = C, d = d)
+      optimres = tryCatch({
+        optim(par = as.numeric(diag(R)), fn = rotation_f, gr = rotation_grad, 
+              method="BFGS", control = list(maxit=1000), 
+              R = R, Eww = Eww, Evv_sum = Evv_sum, M = M, N = N, C = C, d = d)
+      }, error = function(e){
+        warning("Q %*% t(Q) is computationally singular. Switching to rotate=FALSE")
+        list(par = diag(R), 
+             value = rotation_f(as.numeric(diag(R)), R, Eww, Evv_sum, M, N, C, d))
+      })
       Q = matrix(optimres$par, R, R)
       Qinv = solve(Q)
       Ev = Ev %*% t(Qinv)
@@ -225,15 +232,16 @@ MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE, d_sim = 5, verbose
     lowerbound_yz = obj$lowerbound_yz
     
     lowerbound_vw = - neg_lowerbound_vw + 0.5*lowerbound_W + 0.5*lowerbound_V
-    lowerbound = lowerbound_yz + lowerbound_vw + lowerbound_xu
+    lowerbound[iter] = lowerbound_yz + lowerbound_vw + lowerbound_xu
     
     # cat(sprintf("VW:\t %1.3f\tYZ:\t %1.3f\tXU:\t %1.3f\n", lowerbound_vw, lowerbound_yz, lowerbound_xu))
     # cat(sprintf("V:  %1.3f\tW: %1.3f\tnegVW: %1.3f\n", lowerbound_V, lowerbound_W, - neg_lowerbound_vw))
-    if(verbose) cat(sprintf("lower bound:\t %1.3f\n", lowerbound))
+    if(verbose) cat(sprintf("lower bound:\t %1.3f\n", lowerbound[iter]))
   }
   if(verbose) cat("Prediction accuracies (train):", pred_acc_train, "\n")
   return(list(Ebeta = Ebeta, Ew = Ew, Eww = Eww, sigma_W = sigma_W, sigma_V = sigma_V, 
               Egamma = Egamma, g = g, Etau = Etau, 
+              lowerbound = lowerbound, 
               Eu_train = Eu, Euu_sum_train = Euu_sum, 
               n_levels = n_levels, type = type, R = R, d = d, d_sim = d_sim, 
               pred_acc_train = pred_acc_train[length(pred_acc_train)]))

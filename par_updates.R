@@ -76,7 +76,7 @@ update_gamma_j_similarity = function(j, Eu, Euu, Euu_sum, Ew, Eww, Ev, Evv_sum, 
   return(0.5*(b + scaling_const*temp))
 }
 
-update_gamma = function(j, g, n_levels, ordinal_counts, Eu, Euu, Euu_sum, Ev, Ew, Eww, sigma_W, Evv_sum, X, M, N, d, aGamma, bGamma, scaling_const){
+update_gamma = function(j, g, n_levels, ordinal_counts, Eu, Euu, Euu_sum, Ev, Ew, Eww, sigma_W, Evv_sum, X, M, N, d, type, aGamma, bGamma, scaling_const){
   a_tilde = rep(NA, M)
   b_tilde = rep(NA, M)
   for(j in 1:M){
