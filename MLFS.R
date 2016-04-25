@@ -4,6 +4,7 @@ MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE, d_sim = 5, verbose
   d = ifelse(type != "similarity", sapply(X_list, ncol), d_sim)
   C = max(y)
   if(sum(!(y %in% 1:max(y))) > 0) stop("y must have labels 1, 2, ..., C")
+  if(sum(sapply(X_list, class) != "matrix") > 0) stop("X_list must contain matrices only!")
   
   # hyperpars
   aGamma=1e-3
@@ -28,7 +29,7 @@ MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE, d_sim = 5, verbose
       svd_obj = svd(X)
       Eu[[j]] = svd_obj$u[, 1:d[j]] %*% diag(sqrt(svd_obj$d[1:d[j]]))
       for(i in 1:N){
-        Euu[[j]][[i]] = Eu[[j]][i, ] %*% t(Eu[[j]][i, ]) + 1e-3*diag(d[j])
+        Euu[[j]][[i]] = Eu[[j]][i, ] %*% t(Eu[[j]][i, ]) + 1e-6*diag(d[j])
       }
       Euu_sum[[j]] = matrix_list_sum(Euu[[j]])
     }
@@ -82,7 +83,7 @@ MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE, d_sim = 5, verbose
       a_tilde = a_tilde + 0.25*N*(N-1)
       temp = 0
       for(i in 1:(N-1)){
-        residual = X_list[[j]][i, (i+1):N] - Eu[[j]][i, ] %*% t(Eu[[j]][(i+1):N, ])
+        residual = X_list[[j]][i, (i+1):N] - Eu[[j]][i, ] %*% t(Eu[[j]][(i+1):N, , drop=FALSE])
         temp = temp + sum(residual**2)
       }
       b_tilde = b_tilde + 0.5*scaling_const*temp
@@ -237,6 +238,9 @@ MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE, d_sim = 5, verbose
     # cat(sprintf("VW:\t %1.3f\tYZ:\t %1.3f\tXU:\t %1.3f\n", lowerbound_vw, lowerbound_yz, lowerbound_xu))
     # cat(sprintf("V:  %1.3f\tW: %1.3f\tnegVW: %1.3f\n", lowerbound_V, lowerbound_W, - neg_lowerbound_vw))
     if(verbose) cat(sprintf("lower bound:\t %1.3f\n", lowerbound[iter]))
+    
+    # if relative change in lower bound is less than 1e-6, then break
+    if(check_convergence(lowerbound, iter, 1e-6)) break
   }
   if(verbose) cat("Prediction accuracies (train):", pred_acc_train, "\n")
   return(list(Ebeta = Ebeta, Ew = Ew, Eww = Eww, sigma_W = sigma_W, sigma_V = sigma_V, 

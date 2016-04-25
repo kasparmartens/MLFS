@@ -71,7 +71,7 @@ update_gamma_j_similarity = function(j, Eu, Euu, Euu_sum, Ew, Eww, Ev, Evv_sum, 
 #       sum_trace = sum_trace + sum(Euu[[j]][[i]] * Euu[[j]][[k]]) # trace(Euu[[j]][[i]] %*% Euu[[j]][[k]])
 #     }
     sum_trace = sum(do.call("rbind", Euu[[j]][rep(i, N-i)]) * do.call("rbind", Euu[[j]][(i+1):N]))
-    temp = temp - 2*as.numeric(X[i, (i+1):N] %*% Eu[[j]][(i+1):N, ] %*% Eu[[j]][i, ]) + sum_trace
+    temp = temp - 2*as.numeric(X[i, (i+1):N, drop=FALSE] %*% Eu[[j]][(i+1):N, , drop=FALSE] %*% Eu[[j]][i, ]) + sum_trace
   }
   return(0.5*(b + scaling_const*temp))
 }
