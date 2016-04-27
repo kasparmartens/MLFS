@@ -278,3 +278,44 @@ experiment_gaussianity = function(H, d, type, R, n_rep = 5, n_levels = 3, rotate
   names(df)[1:2] = c("test", "train")
   return(df)
 }
+
+# Experiment with label switching
+generate_label_switching = function(U_list, prop_individuals = 0.05, n_views = 1){
+  if(prop_individuals == 0) return(U_list)
+  out = U_list
+  N = nrow(U_list[[1]])
+  M = length(U_list)
+  selected_individuals = sample(1:N, floor(prop_individuals*N))
+  reordering_selected_individuals = c(selected_individuals[-1], selected_individuals[1])
+  for(i in 1:length(selected_individuals)){
+    for(j in sample(1:M, n_views)){
+      switch_indexes = c(selected_individuals[i], reordering_selected_individuals[i])
+      out[[j]][rev(switch_indexes), ] = U_list[[j]][switch_indexes, ]
+    }
+  }
+  return(out)
+}
+
+experiment_label_switching = function(prop_individuals = 0.1, H, d, type, R, n_views = 1, t_distribution = FALSE){
+  K = length(prop_individuals)
+  df = data.frame()
+  latent_data = generate_latent_subspace(H, N = 200, d = d, gamma = 10)
+  if(t_distribution) latent_data = generate_latent_subspace_t(H, N = 200, d = d, gamma = 10)
+  y = generate_y(latent_data$V, C = 2)
+  X0 = generate_X(latent_data$U_list, type)
+  data = split_into_train_and_test(X0, y, prop=0.5)
+  for(j in 1:length(n_views)){
+    pred_acc_train = rep(NA, K)
+    pred_acc = rep(NA, K)
+    for(i in 1:K){
+      X_train_mod = generate_label_switching(data$trainX, prop_individuals[i], n_views[j])
+      MLFSobj = MLFS(data$trainy, X_train_mod, type, R, max_iter=20, rotate=TRUE, verbose=FALSE)
+      pred = pred_out_of_sample(data$testX, MLFSobj)
+      pred_acc[i] = mean(pred == data$testy)
+      pred_acc_train[i] = MLFSobj$pred_acc_train
+    }
+    temp = data.frame(test = pred_acc, train = pred_acc_train, prop_switched = prop_individuals, n_views = n_views[j])
+    df = rbind(df, temp)
+  }
+  return(df)
+}

@@ -248,7 +248,7 @@ MLFS = function(y, X_list, type, R, max_iter=10, rotate=TRUE, d_sim = 5, verbose
               lowerbound = lowerbound, 
               Eu_train = Eu, Euu_sum_train = Euu_sum, 
               n_levels = n_levels, type = type, R = R, d = d, d_sim = d_sim, 
-              pred_acc_train = pred_acc_train[length(pred_acc_train)]))
+              pred_acc_train = pred_acc_train[iter]))
 }
 
 

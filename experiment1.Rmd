@@ -269,7 +269,7 @@ ggplot(df.m, aes(factor(latent_dim), value, col=variable)) +
 
 When this dimensionality is underestimated, it is expected that we may lose in performance (cannot capture so much information). When it is overestimated, it seems to do just fine (reassuring, so in practice "pick R large enough" should do the job). 
 
-### What if there are multiple correlated features
+### What if there are multiple correlated features?
 
 To generate a scenario where there are multiple correlated features, for example
 
@@ -305,7 +305,7 @@ Everything seems OK. When trying out the other approach, similar behaviour was s
 
 Minor comment: Sometimes got an error $\boldQ \boldQ^T$ being not invertible. In such cases I proceeded without optimising w.r.t. rotations any more. 
 
-### What if the Gaussianity assumption is violated
+### What if the Gaussianity assumption is violated?
 
 In $\boldU_i^{(m)} \sim \N(\boldV_i \boldW^{(m)}, \frac{1}{\gamma_m} \boldI)$, we can replace the Gaussian distribution with Student t distribution (df=1) with heavier tails. Note that if $\gamma$ is small, the effect of this is also small. In these experiments $\gamma=1$.  
 
@@ -333,3 +333,30 @@ ggplot(df.m, aes(noise, value, col=variable)) +
 ```
 
 Quite a large drop in performance. 
+
+### What if some of the views have been mislabelled?
+
+Generate data with 4 views, each consisting of 10 Gaussian variables. Now, switch the labels for $\{0, 0.05, 0.1, .., 0.5\}$ proportion of training individuals (x-axis) for $\{1, 2, 3, 4\}$ views (shown in separate panels). Note that we did not modify any training data. 
+
+```{r, fig.width=10}
+H = rbind(c(1, 1, 1, 1), 
+          c(1, 1, 1, 0), 
+          c(1, 0, 1, 1), 
+          c(1, 1, 0, 1), 
+          c(1, 0, 0, 1), 
+          c(0, 1, 1, 0))
+
+# set.seed(0)
+# R = nrow(H)
+# d = c(10, 10, 10, 10)
+# type = rep("gaussian", 4)
+# df = experiment_label_switching(c(0, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5), H, d, type, R, n_views = c(1, 2, 3, 4))
+# save(df, file="temp_label_switching.RData")
+load("temp_label_switching.RData")
+df.m = melt(df, measure.vars = c("test", "train"))
+ggplot(df.m, aes(factor(prop_switched), value, col = variable, group=variable)) + geom_line() + 
+  facet_wrap(~n_views, nrow=1) + theme_bw() + ylim(0, 1) + 
+  xlab("Proportion of switched labels in training data") + 
+  scale_color_brewer(palette="Set1")
+
+```
