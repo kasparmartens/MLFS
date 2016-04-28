@@ -1,8 +1,9 @@
 MLFS_regression = function(y, X_list, type, R, max_iter=10, rotate=TRUE, d_sim = 5, verbose = TRUE){
-  N = length(y)
+  N = nrow(y)
   M = length(X_list)
   d = ifelse(type != "similarity", sapply(X_list, ncol), d_sim)
-  C = max(y)
+  # C = max(y)
+  C = ncol(Y)
   # if(sum(!(y %in% 1:max(y))) > 0) stop("y must have labels 1, 2, ..., C")
   if(sum(sapply(X_list, class) != "matrix") > 0) stop("X_list must contain matrices only!")
   
@@ -16,10 +17,10 @@ MLFS_regression = function(y, X_list, type, R, max_iter=10, rotate=TRUE, d_sim =
   scaling_const = 0.2
   G = 10
   
-  Erho = 100
-  Elambda = 100
-  ypred = rep(mean(y), N)
-  Ebeta = rep(0, R)
+  Erho = rep(100, C)
+  Elambda = rep(100, C)
+  ypred = matrix(rep(apply(Y, 2, mean), each=N), N, ncol(Y))
+  Ebeta = matrix(0, R, C)
   Ebetabeta = Ebeta %*% t(Ebeta)
   
   # initialise U
@@ -108,7 +109,7 @@ MLFS_regression = function(y, X_list, type, R, max_iter=10, rotate=TRUE, d_sim =
   # Ebeta = rep(NA, R)
   # Ebetabeta = Ebeta %*% t(Ebeta)
   
-  pred_acc_train = rep(NA, max_iter)
+  pred_acc_train = matrix(NA, max_iter, C)
   lowerbound = rep(NA, max_iter)
   for(iter in 1:max_iter){
     
@@ -222,22 +223,30 @@ MLFS_regression = function(y, X_list, type, R, max_iter=10, rotate=TRUE, d_sim =
       }
     }
     
-    sigma_beta = solve(Erho*diag(R) + Evv_sum)
-    Ebeta = sigma_beta %*% t(Ev) %*% y
-    a_rho = (1e-3 + 0.5*R)
-    b_rho = as.numeric(1e-3 + 0.5*(Elambda * t(Ebeta)%*%Ebeta + trace(sigma_beta)))
-    Erho = a_rho / b_rho
-    
+    lowerbound_yz = 0
+    for(k in 1:C){
+      sigma_beta = solve(Erho[k]*diag(R) + Evv_sum)
+      Ebeta[, k] = sigma_beta %*% t(Ev) %*% y[, k]
+      a_rho = (1e-3 + 0.5*R)
+      b_rho = as.numeric(1e-3 + 0.5*(Elambda[k] * t(Ebeta[, k])%*%Ebeta[, k] + trace(sigma_beta)))
+      Erho[k] = a_rho / b_rho
+      lowerbound_yz = lowerbound_yz + 0.5*logdet(sigma_beta) - 0.5*sum(diag(Ev %*% sigma_beta %*% t(Ev))) +
+        lgamma(a_rho) - a_rho*log(b_rho)
+    }
     ypred = Ev %*% Ebeta
     residuals = y - ypred
-    a_lambda = (1e-3 + 0.5*N)
-    b_lambda = as.numeric(1e-3 + 0.5*sum(residuals**2) + Erho * t(Ebeta) %*% Ebeta)
-    Elambda = a_lambda / b_lambda
+    for(k in 1:C){
+      a_lambda = (1e-3 + 0.5*N)
+      b_lambda = as.numeric(1e-3 + 0.5*sum(residuals[, k]**2) + Erho[k] * t(Ebeta[, k]) %*% Ebeta[, k])
+      Elambda[k] = a_lambda / b_lambda
+      lowerbound_yz = lowerbound_yz - 0.5*Elambda[k]*sum(residuals[, k]**2) +
+        lgamma(a_lambda) - a_lambda*log(b_lambda) + a_lambda 
+    }
+
 
   
-    pred_acc_train[iter] = cor(y, ypred)
-    lowerbound_yz = 0.5*logdet(sigma_beta) - 0.5*Elambda*sum(residuals**2) - 0.5*sum(diag(Ev %*% sigma_beta %*% t(Ev))) +
-      lgamma(a_lambda) - a_lambda*log(b_lambda) + a_lambda + lgamma(a_rho) - a_rho*log(b_rho)
+    pred_acc_train[iter, ] = sapply(1:C, function(k)cor(ypred[, k], y[, k]))
+
     lowerbound_vw = - neg_lowerbound_vw + 0.5*lowerbound_W + 0.5*lowerbound_V
     lowerbound[iter] = lowerbound_yz + lowerbound_vw + lowerbound_xu
     
