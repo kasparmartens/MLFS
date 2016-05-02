@@ -15,8 +15,9 @@ generate_latent_subspace = function(H, N = 100, d = c(5, 5, 5, 5), gamma=1000){
   return(list(U_list = U_list, W_list = W_list, V = V, beta = beta))
 }
 
-generate_y = function(V, C = 2){
+generate_y = function(V, C = 2, continuous = FALSE){
   R = ncol(V)
+  if(continuous) return(V %*% rnorm(R))
   beta = matrix(rnorm(R*C), R, C)
   z = V %*% beta
   y = apply(z, 1, which.max)

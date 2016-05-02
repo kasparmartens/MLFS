@@ -1,9 +1,10 @@
 MLFS_regression = function(y, X_list, type, R, max_iter=10, rotate=TRUE, d_sim = 5, verbose = TRUE){
+  if(class(y) != "matrix") y = as.matrix(y)
   N = nrow(y)
   M = length(X_list)
   d = ifelse(type != "similarity", sapply(X_list, ncol), d_sim)
   # C = max(y)
-  C = ncol(Y)
+  C = ncol(y)
   # if(sum(!(y %in% 1:max(y))) > 0) stop("y must have labels 1, 2, ..., C")
   if(sum(sapply(X_list, class) != "matrix") > 0) stop("X_list must contain matrices only!")
   
@@ -19,7 +20,7 @@ MLFS_regression = function(y, X_list, type, R, max_iter=10, rotate=TRUE, d_sim =
   
   Erho = rep(100, C)
   Elambda = rep(100, C)
-  ypred = matrix(rep(apply(Y, 2, mean), each=N), N, ncol(Y))
+  ypred = matrix(rep(apply(y, 2, mean), each=N), N, C)
   Ebeta = matrix(0, R, C)
   Ebetabeta = Ebeta %*% t(Ebeta)
   
@@ -245,7 +246,7 @@ MLFS_regression = function(y, X_list, type, R, max_iter=10, rotate=TRUE, d_sim =
 
 
   
-    pred_acc_train[iter, ] = sapply(1:C, function(k)cor(ypred[, k], y[, k]))
+    pred_acc_train[iter, ] = sapply(1:C, function(k)cor(ypred[, k], y[, k])**2)
 
     lowerbound_vw = - neg_lowerbound_vw + 0.5*lowerbound_W + 0.5*lowerbound_V
     lowerbound[iter] = lowerbound_yz + lowerbound_vw + lowerbound_xu
