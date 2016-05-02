@@ -7,6 +7,7 @@ source("par_updates.R")
 source("rotation.R")
 source("ordinal_cutpoints.R")
 source("MLFS.R")
+source("MLFS_regression.R")
 source("generate_data.R")
 
 # H = rbind(c(1, 1), 
@@ -22,21 +23,28 @@ source("generate_data.R")
 # type = c("gaussian", "ordinal")
 
 # Perfect scenario
-experiment0 = function(H, d, type, R, n_rep = 3, n_levels = 3, rotate=TRUE){
+experiment0 = function(H, d, type, R, n_rep = 3, n_levels = 3, rotate=TRUE, continuous = FALSE){
   pred_acc_train = rep(NA, n_rep)
   pred_acc = rep(NA, n_rep)
   for(i in 1:n_rep){
     # generate latent variables
     latent_data = generate_latent_subspace(H, N = 200, d = d)
-    y = generate_y(latent_data$V, C = 2)
+    y = generate_y(latent_data$V, C = 2, continuous = continuous)
     g_list = lapply(latent_data$U_list, function(x)c(-Inf, quantile(x, 1:(n_levels-1) / n_levels), Inf))
 
     X0 = generate_X(latent_data$U_list, type, g_list)
     data = split_into_train_and_test(X0, y, prop=0.5)
-    MLFSobj = MLFS(data$trainy, data$trainX, type, R, max_iter=20, rotate=rotate, verbose=FALSE)
-    pred = pred_out_of_sample(data$testX, MLFSobj)
-    pred_acc[i] = mean(pred == data$testy)
-    pred_acc_train[i] = MLFSobj$pred_acc_train
+    if(continuous){
+      MLFSobj = MLFS_regression(data$trainy, data$trainX, type, R, max_iter=20, rotate=rotate, verbose=FALSE)
+      pred = pred_out_of_sample_regression(data$testX, MLFSobj)
+      pred_acc[i] = cor(pred, data$testy)**2
+      pred_acc_train[i] = MLFSobj$pred_acc_train      
+    } else{
+      MLFSobj = MLFS(data$trainy, data$trainX, type, R, max_iter=20, rotate=rotate, verbose=FALSE)
+      pred = pred_out_of_sample(data$testX, MLFSobj)
+      pred_acc[i] = mean(pred == data$testy)
+      pred_acc_train[i] = MLFSobj$pred_acc_train
+    }
   }
   df = data.frame(pred_acc, pred_acc_train)
   names(df) = c("test", "train")
@@ -44,13 +52,13 @@ experiment0 = function(H, d, type, R, n_rep = 3, n_levels = 3, rotate=TRUE){
 }
 
 # repeat experiment
-three_experiments = function(experiment, H, d, R, n_rep = 5, n_views = 2){
+three_experiments = function(experiment, H, d, R, n_views = 2, ...){
   type = rep(c("gaussian", "gaussian"), n_views/2)
-  res1 = experiment(H, d, type, R, n_rep = n_rep)
+  res1 = experiment(H, d, type, R, ...)
   type = rep(c("gaussian", "ordinal"), n_views/2)
-  res2 = experiment(H, d, type, R, n_rep = n_rep)
+  res2 = experiment(H, d, type, R, ...)
   type = rep(c("ordinal", "ordinal"), n_views/2)
-  res3 = experiment(H, d, type, R, n_rep = n_rep)
+  res3 = experiment(H, d, type, R, ...)
   df = data.frame(rbind(res1, res2, res3), 
                    type = rep(c("gaussian + gaussian", "gaussian + ordinal", "ordinal + ordinal"), each=nrow(res1)))
   return(df)
@@ -75,7 +83,7 @@ experiment_lowerbound = function(H, d, type, n_levels = 3){
 }
 
 # Experiment with gamma
-experiment_gamma = function(gammas, H, d, type, R, n_rep = 3, n_levels = 3, rotate=TRUE){
+experiment_gamma = function(gammas, H, d, type, R, n_rep = 3, n_levels = 3, rotate=TRUE, continuous = FALSE){
   df = data.frame()
   for(k in 1:length(gammas)){
     pred_acc_train = rep(NA, n_rep)
@@ -83,15 +91,22 @@ experiment_gamma = function(gammas, H, d, type, R, n_rep = 3, n_levels = 3, rota
     for(i in 1:n_rep){
       # generate latent variables
       latent_data = generate_latent_subspace(H, N = 200, d = d, gamma = gammas[k])
-      y = generate_y(latent_data$V, C = 2)
+      y = generate_y(latent_data$V, C = 2, continuous = continuous)
       g_list = lapply(latent_data$U_list, function(x)c(-Inf, quantile(x, 1:(n_levels-1) / n_levels), Inf))
       
       X0 = generate_X(latent_data$U_list, type, g_list)
       data = split_into_train_and_test(X0, y, prop=0.5)
-      MLFSobj = MLFS(data$trainy, data$trainX, type, R, max_iter=20, rotate=rotate, verbose=FALSE)
-      pred = pred_out_of_sample(data$testX, MLFSobj)
-      pred_acc[i] = mean(pred == data$testy)
-      pred_acc_train[i] = MLFSobj$pred_acc_train
+      if(continuous){
+        MLFSobj = MLFS_regression(data$trainy, data$trainX, type, R, max_iter=20, rotate=rotate, verbose=FALSE)
+        pred = pred_out_of_sample_regression(data$testX, MLFSobj)
+        pred_acc[i] = cor(pred, data$testy)**2
+        pred_acc_train[i] = MLFSobj$pred_acc_train      
+      } else{
+        MLFSobj = MLFS(data$trainy, data$trainX, type, R, max_iter=20, rotate=rotate, verbose=FALSE)
+        pred = pred_out_of_sample(data$testX, MLFSobj)
+        pred_acc[i] = mean(pred == data$testy)
+        pred_acc_train[i] = MLFSobj$pred_acc_train
+      }
     }
     temp = data.frame(pred_acc, pred_acc_train, gamma = gammas[k])
     df = rbind(df, temp)
@@ -102,55 +117,68 @@ experiment_gamma = function(gammas, H, d, type, R, n_rep = 3, n_levels = 3, rota
 
 
 # Experiment with the number of irrelevant features
-experiment1 = function(n_irrelevant_features, H, d, type, n_rep = 3, n_levels = 3){
+library(doParallel)
+library(foreach)
+registerDoParallel(cores = 8)
+experiment1 = function(n_irrelevant_features, H, d, type, n_rep = 3, n_levels = 3, continuous = FALSE){
   K = length(n_irrelevant_features)
   pred_acc_train = rep(NA, K)
   pred_acc = rep(NA, K)
   df = data.frame()
-  for(i in 1:n_rep){
+  df = foreach(i = 1:n_rep, .combine="rbind") %dopar% {
     # generate latent variables
     latent_data = generate_latent_subspace(H, N = 200, d = d)
-    y = generate_y(latent_data$V, C = 2)
+    y = generate_y(latent_data$V, C = 2, continuous = continuous)
     g_list = lapply(latent_data$U_list, function(x)c(-Inf, quantile(x, 1:(n_levels-1) / n_levels), Inf))
-    
     for(k in 1:K){
       X0 = generate_X(latent_data$U_list, type, g_list)
       X1 = add_irrelevant_features(X0, type, n_irrelevant_features[k])
       data = split_into_train_and_test(X1, y, prop=0.5)
-      MLFSobj = MLFS(data$trainy, data$trainX, type, R, max_iter=20, rotate=TRUE, verbose=FALSE)
-      pred = pred_out_of_sample(data$testX, MLFSobj)
-      pred_acc[k] = mean(pred == data$testy)
-      pred_acc_train[k] = MLFSobj$pred_acc_train
+      if(continuous){
+        MLFSobj = MLFS_regression(data$trainy, data$trainX, type, R, max_iter=20, rotate=TRUE, verbose=FALSE)
+        pred = pred_out_of_sample_regression(data$testX, MLFSobj)
+        pred_acc[k] = cor(pred, data$testy)**2
+        pred_acc_train[k] = MLFSobj$pred_acc_train      
+      } else{
+        MLFSobj = MLFS(data$trainy, data$trainX, type, R, max_iter=20, rotate=TRUE, verbose=FALSE)
+        pred = pred_out_of_sample(data$testX, MLFSobj)
+        pred_acc[k] = mean(pred == data$testy)
+        pred_acc_train[k] = MLFSobj$pred_acc_train
+      }
     }
-    temp = data.frame(n_irrelevant_features, pred_acc, pred_acc_train)
-    df = rbind(df, temp)
+    data.frame(n_irrelevant_features, pred_acc, pred_acc_train)
   }
   names(df)[2:3] = c("test", "train")
   return(df)
 }
 
 # Experiment with the dimensionality of latent space
-experiment2 = function(R_values, H, d, type, n_rep = 3, n_levels = 3){
+experiment2 = function(R_values, H, d, type, n_rep = 3, n_levels = 3, continuous = FALSE){
   K = length(R_values)
   pred_acc_train = rep(NA, K)
   pred_acc = rep(NA, K)
-  df = data.frame()
-  for(i in 1:n_rep){
+  df = foreach(i = 1:n_rep, .combine="rbind") %dopar% {
     # generate latent variables
     latent_data = generate_latent_subspace(H, N = 200, d = d)
-    y = generate_y(latent_data$V, C = 2)
+    y = generate_y(latent_data$V, C = 2, continuous = continuous)
     g_list = lapply(latent_data$U_list, function(x)c(-Inf, quantile(x, 1:(n_levels-1) / n_levels), Inf))
     
     for(k in 1:K){
       X0 = generate_X(latent_data$U_list, type, g_list)
       data = split_into_train_and_test(X0, y, prop=0.5)
-      MLFSobj = MLFS(data$trainy, data$trainX, type, R_values[k], max_iter=30, rotate=FALSE, verbose=FALSE)
-      pred = pred_out_of_sample(data$testX, MLFSobj)
-      pred_acc[k] = mean(pred == data$testy)
-      pred_acc_train[k] = MLFSobj$pred_acc_train
+      if(continuous){
+        MLFSobj = MLFS_regression(data$trainy, data$trainX, type, R, max_iter=20, rotate=TRUE, verbose=FALSE)
+        pred = pred_out_of_sample_regression(data$testX, MLFSobj)
+        pred_acc[k] = cor(pred, data$testy)**2
+        pred_acc_train[k] = MLFSobj$pred_acc_train      
+      } else{
+        MLFSobj = MLFS(data$trainy, data$trainX, type, R, max_iter=20, rotate=TRUE, verbose=FALSE)
+        pred = pred_out_of_sample(data$testX, MLFSobj)
+        pred_acc[k] = mean(pred == data$testy)
+        pred_acc_train[k] = MLFSobj$pred_acc_train
+      }
     }
-    temp = data.frame(R_values, pred_acc, pred_acc_train)
-    df = rbind(df, temp)
+    data.frame(R_values, pred_acc, pred_acc_train)
   }
   names(df) = c("latent_dim", "test", "train")
   return(df)
@@ -172,34 +200,39 @@ rsparsematrix_mod = function(n_added, m, n, binary_vector, rho=0.9){
 }
 
 
-generate_latent_subspace_with_correlated_features = function(n_added, H, N = 100, d = c(5, 5, 5, 5)){
+generate_latent_subspace_with_correlated_features = function(n_added, H, N = 100, d = c(5, 5, 5, 5), gamma=10){
   R = nrow(H)
   V = matrix(rnorm(N*R), N, R)
   W_list = lapply(1:length(d), function(j)rsparsematrix_mod(n_added, R, d[j], H[, j]))
-  U_list = lapply(W_list, function(W) V %*% W)
+  U_list = lapply(W_list, function(W) V %*% W + rnorm(N*ncol(W), 0, 1/sqrt(gamma)))
   return(list(U_list = U_list, W_list = W_list, V = V, beta = beta))
 }
 
-experiment_correlated_features = function(n_added, H, d, type, n_rep = 5, n_levels = 3){
+experiment_correlated_features = function(n_added, H, d, type, n_rep = 5, n_levels = 3, continuous = FALSE){
   K = length(n_added)
   pred_acc_train = rep(NA, K)
   pred_acc = rep(NA, K)
-  df = data.frame()
-  for(i in 1:n_rep){
+  df = foreach(i = 1:n_rep, .combine="rbind") %dopar% {
     for(k in 1:K){
       # generate latent variables
       latent_data = generate_latent_subspace_with_correlated_features(n_added[k], H, N = 200, d = d)
-      y = generate_y(latent_data$V, C = 2)
+      y = generate_y(latent_data$V, C = 2, continuous = continuous)
       g_list = lapply(latent_data$U_list, function(x)c(-Inf, quantile(x, 1:(n_levels-1) / n_levels), Inf))
       X0 = generate_X(latent_data$U_list, type, g_list)
       data = split_into_train_and_test(X0, y, prop=0.5)
-      MLFSobj = MLFS(data$trainy, data$trainX, type, R, max_iter=20, rotate=TRUE, verbose=FALSE)
-      pred = pred_out_of_sample(data$testX, MLFSobj)
-      pred_acc[k] = mean(pred == data$testy)
-      pred_acc_train[k] = MLFSobj$pred_acc_train
+      if(continuous){
+        MLFSobj = MLFS_regression(data$trainy, data$trainX, type, R, max_iter=20, rotate=TRUE, verbose=FALSE)
+        pred = pred_out_of_sample_regression(data$testX, MLFSobj)
+        pred_acc[k] = cor(pred, data$testy)**2
+        pred_acc_train[k] = MLFSobj$pred_acc_train      
+      } else{
+        MLFSobj = MLFS(data$trainy, data$trainX, type, R, max_iter=20, rotate=TRUE, verbose=FALSE)
+        pred = pred_out_of_sample(data$testX, MLFSobj)
+        pred_acc[k] = mean(pred == data$testy)
+        pred_acc_train[k] = MLFSobj$pred_acc_train
+      }
     }
-    temp = data.frame(n_added, pred_acc, pred_acc_train)
-    df = rbind(df, temp)
+    data.frame(n_added, pred_acc, pred_acc_train)
   }
   names(df)[2:3] = c("test", "train")
   return(df)
@@ -246,33 +279,48 @@ experiment_correlated_features2 = function(n_added, H, d, type, n_rep = 5, n_lev
   return(df)
 }
 
-generate_latent_subspace_t = function(H, N = 100, d = c(5, 5, 5, 5), gamma=1000){
+generate_latent_subspace_t = function(H, N = 100, d = c(5, 5, 5, 5), gamma=1000, df=1){
   R = nrow(H)
   
   V = matrix(rnorm(N*R), N, R)
   W_list = lapply(1:length(d), function(j)rsparsematrix(R, d[j], H[, j]))
   
-  U_list = lapply(W_list, function(W) V %*% W + 1/sqrt(gamma)*rt(N*ncol(W), 1))
+  U_list = lapply(W_list, function(W) V %*% W + 1/sqrt(gamma)*rt(N*ncol(W), df))
   
   return(list(U_list = U_list, W_list = W_list, V = V, beta = beta))
 }
 
 # Experiment with gaussianity
-experiment_gaussianity = function(H, d, type, R, n_rep = 5, n_levels = 3, rotate=TRUE){
+experiment_gaussianity = function(H, d, type, R, n_rep = 5, n_levels = 3, rotate = TRUE, use_t_distr = TRUE, transformation = FALSE, continuous = FALSE, df = 1){
   pred_acc_train = rep(NA, n_rep)
   pred_acc = rep(NA, n_rep)
   for(i in 1:n_rep){
     # generate latent variables
-    latent_data = generate_latent_subspace_t(H, N = 200, d = d, gamma = 1)
-    y = generate_y(latent_data$V, C = 2)
+    if(use_t_distr){
+      latent_data = generate_latent_subspace_t(H, N = 200, d = d, gamma = 1, df = df)
+    } else{
+      latent_data = generate_latent_subspace(H, N = 200, d = d, gamma = 1)
+    }
+    y = generate_y(latent_data$V, C = 2, continuous = continuous)
     g_list = lapply(latent_data$U_list, function(x)c(-Inf, quantile(x, 1:(n_levels-1) / n_levels), Inf))
-    
     X0 = generate_X(latent_data$U_list, type, g_list)
+    if(transformation){
+      for(j in 1:length(X0)){
+        if(type[j] == "gaussian") X0[[j]] = apply(X0[[j]], 2, inversenormal)
+      }
+    }
     data = split_into_train_and_test(X0, y, prop=0.5)
-    MLFSobj = MLFS(data$trainy, data$trainX, type, R, max_iter=20, rotate=rotate, verbose=FALSE)
-    pred = pred_out_of_sample(data$testX, MLFSobj)
-    pred_acc[i] = mean(pred == data$testy)
-    pred_acc_train[i] = MLFSobj$pred_acc_train
+    if(continuous){
+      MLFSobj = MLFS_regression(data$trainy, data$trainX, type, R, max_iter=20, rotate=TRUE, verbose=FALSE)
+      pred = pred_out_of_sample_regression(data$testX, MLFSobj)
+      pred_acc[i] = cor(pred, data$testy)**2
+      pred_acc_train[i] = MLFSobj$pred_acc_train      
+    } else{
+      MLFSobj = MLFS(data$trainy, data$trainX, type, R, max_iter=20, rotate=TRUE, verbose=FALSE)
+      pred = pred_out_of_sample(data$testX, MLFSobj)
+      pred_acc[i] = mean(pred == data$testy)
+      pred_acc_train[i] = MLFSobj$pred_acc_train
+    }
   }
   df = data.frame(pred_acc, pred_acc_train)
   names(df)[1:2] = c("test", "train")
@@ -296,26 +344,32 @@ generate_label_switching = function(U_list, prop_individuals = 0.05, n_views = 1
   return(out)
 }
 
-experiment_label_switching = function(prop_individuals = 0.1, H, d, type, R, n_views = 1, t_distribution = FALSE){
+experiment_label_switching = function(prop_individuals = 0.1, H, d, type, R, n_views = 1, t_distribution = FALSE, continuous = FALSE){
   K = length(prop_individuals)
   df = data.frame()
   latent_data = generate_latent_subspace(H, N = 200, d = d, gamma = 10)
   if(t_distribution) latent_data = generate_latent_subspace_t(H, N = 200, d = d, gamma = 10)
-  y = generate_y(latent_data$V, C = 2)
+  y = generate_y(latent_data$V, C = 2, continuous = continuous)
   X0 = generate_X(latent_data$U_list, type)
   data = split_into_train_and_test(X0, y, prop=0.5)
-  for(j in 1:length(n_views)){
+  df = foreach(j = 1:length(n_views), .combine="rbind") %dopar% {
     pred_acc_train = rep(NA, K)
     pred_acc = rep(NA, K)
     for(i in 1:K){
       X_train_mod = generate_label_switching(data$trainX, prop_individuals[i], n_views[j])
-      MLFSobj = MLFS(data$trainy, X_train_mod, type, R, max_iter=20, rotate=TRUE, verbose=FALSE)
-      pred = pred_out_of_sample(data$testX, MLFSobj)
-      pred_acc[i] = mean(pred == data$testy)
-      pred_acc_train[i] = MLFSobj$pred_acc_train
+      if(continuous){
+        MLFSobj = MLFS_regression(data$trainy, X_train_mod, type, R, max_iter=20, rotate=TRUE, verbose=FALSE)
+        pred = pred_out_of_sample_regression(data$testX, MLFSobj)
+        pred_acc[i] = cor(pred, data$testy)**2
+        pred_acc_train[i] = MLFSobj$pred_acc_train      
+      } else{
+        MLFSobj = MLFS(data$trainy, X_train_mod, type, R, max_iter=20, rotate=TRUE, verbose=FALSE)
+        pred = pred_out_of_sample(data$testX, MLFSobj)
+        pred_acc[i] = mean(pred == data$testy)
+        pred_acc_train[i] = MLFSobj$pred_acc_train
+      }
     }
-    temp = data.frame(test = pred_acc, train = pred_acc_train, prop_switched = prop_individuals, n_views = n_views[j])
-    df = rbind(df, temp)
+    data.frame(test = pred_acc, train = pred_acc_train, prop_switched = prop_individuals, n_views = n_views[j])
   }
   return(df)
 }

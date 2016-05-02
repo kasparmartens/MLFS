@@ -1,7 +1,6 @@
 ---
 output: 
-  html_document:
-    keep_md: true
+  html_document
 ---
 
 ```{r global_options, include=FALSE}
@@ -57,6 +56,8 @@ And the labels $y_i$ are generated $y_i = \argmax_c{z_{ic}}$, where $z_{ic} \sim
 This is illustrated in the following schema (non-zero elements of $\boldW$ are shaded). 
 
 ![](figures/schema1.png)
+
+Reference to the [paper](people.duke.edu/~pr73/recent/mlfsAAAI2015.pdf). 
 
 # Testing MLFS method on simulated data
 
@@ -311,17 +312,20 @@ In $\boldU_i^{(m)} \sim \N(\boldV_i \boldW^{(m)}, \frac{1}{\gamma_m} \boldI)$, w
 
 In principle, we could also ask a similar question about Gaussianity in $\boldV$ or $\boldW$, but currently skip this. 
 
-```{r}
-# df2 = three_experiments(experiment_gaussianity, H, d, R)
-# df2$noise = "t distribution"
+```{r, fig.width=10}
+# df2 = three_experiments(experiment_gaussianity, H, d, R, use_t_distr = TRUE, df = 1, continuous = FALSE)
+# df2$noise = "t distribution\n(df=1)"
+# df3 = three_experiments(experiment_gaussianity, H, d, R, use_t_distr = TRUE, df = 2, continuous = FALSE)
+# df3$noise = "t distribution\n(df=2)"
 # load("temp_gamma.RData")
 # 
 # df.m =  df %>%
 #   filter(gamma == 1) %>%
 #   select(-gamma) %>%
 #   mutate(noise = "Gaussian") %>%
-#   rbind(df2) %>%
+#   rbind(df2) %>% rbind(df3) %>%
 #   melt(measure.vars = c("train", "test")) 
+# save(df.m, file="temp_t_distribution.RData")
 
 load("temp_t_distribution.RData")
 ggplot(df.m, aes(noise, value, col=variable)) + 
@@ -333,6 +337,27 @@ ggplot(df.m, aes(noise, value, col=variable)) +
 ```
 
 Quite a large drop in performance. 
+
+But what if we apply a **rank-based inverse-normal transformation** to the (Gaussian) features before using our method. 
+
+```{r}
+# d = 2*c(10, 10, 10, 10)
+# type = rep("gaussian", length(d))
+# df1 = experiment_gaussianity(H, d, type, R, n_rep = 10, use_t_distr = TRUE, transformation = FALSE)
+# df2 = experiment_gaussianity(H, d, type, R, n_rep = 10, use_t_distr = TRUE, transformation = TRUE)
+# df = rbind(cbind(df1, noise = "t distribution"), cbind(df2, noise = "rank transformed\nt distribution"))
+# df.m = melt(df, measure.vars = c("train", "test"))
+# save(df.m, file="temp_transformation.RData")
+load("temp_transformation.RData")
+ggplot(df.m, aes(noise, value, col=variable)) + 
+  geom_boxplot() + 
+  theme_bw() + ylim(0, 1) + 
+  xlab("") + ylab("Prediction accuracy") + 
+  scale_color_brewer(palette="Set1")
+
+```
+
+Improved performance! 
 
 ### What if some of the views have been mislabelled?
 
@@ -350,13 +375,19 @@ H = rbind(c(1, 1, 1, 1),
 # R = nrow(H)
 # d = c(10, 10, 10, 10)
 # type = rep("gaussian", 4)
-# df = experiment_label_switching(c(0, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5), H, d, type, R, n_views = c(1, 2, 3, 4))
+# df = data.frame()
+# for(i in 1:5){
+#   temp = experiment_label_switching(c(0, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5), H, d, type, R, n_views = c(1, 2, 3, 4))
+#   temp$iter = i
+#   df = rbind(df, temp)
+# }
 # save(df, file="temp_label_switching.RData")
 load("temp_label_switching.RData")
 df.m = melt(df, measure.vars = c("test", "train"))
-ggplot(df.m, aes(factor(prop_switched), value, col = variable, group=variable)) + geom_line() + 
+ggplot(df.m, aes(factor(prop_switched), value, col = variable, group=paste(iter, variable))) + geom_line() + 
   facet_wrap(~n_views, nrow=1) + theme_bw() + ylim(0, 1) + 
   xlab("Proportion of switched labels in training data") + 
   scale_color_brewer(palette="Set1")
 
 ```
+

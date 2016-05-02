@@ -1,0 +1,298 @@
+---
+output: 
+  html_document
+---
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, warning=FALSE, message=FALSE)
+```
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+source("experiment.R")
+
+H = rbind(c(1, 1), 
+          c(1, 1), 
+          c(1, 0), 
+          c(1, 0), 
+          c(0, 1), 
+          c(0, 1))
+
+set.seed(0)
+R = nrow(H)
+d = c(10, 10)
+
+```
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\N}{\mathcal{N}}
+\newcommand{\boldU}{\mathbf{U}}
+\newcommand{\boldW}{\mathbf{W}}
+\newcommand{\boldV}{\mathbf{V}}
+\newcommand{\boldX}{\mathbf{X}}
+\newcommand{\boldQ}{\mathbf{Q}}
+\newcommand{\boldI}{\mathbf{I}}
+\newcommand{\boldbeta}{\boldsymbol{\beta}}
+\DeclareMathOperator*{\argmin}{arg\,min}
+\DeclareMathOperator*{\argmax}{arg\,max}
+
+# MLFS method with regression
+
+Same as the method for classification, but now suppose we have $N$ data points, each having a univariate continuous response $y_i \in \R$ (instead of a label). 
+
+# Testing MLFS method on simulated data
+
+Generate two views, both with 10 features. Altogether 200 data points (100 for training, 100 for testing). 
+
+We will consider three scenarios 
+
+- Two Gaussian views
+- One gaussian, one ordinal (with 3 levels)
+- Both ordinal views (both with 3 levels)
+
+That is, data was generated as follows:
+
+* $\boldV_i \sim \N(0, \boldI)$ with dimensionality $R=6$
+* sparsity in $\boldW$ was introduced as shown in the figure, nonzero elements of $\boldW^{(m)}$ were drawn from $N(0, 1)$
+
+
+Performance reported as $R^2$. 
+
+### Sanity check
+
+Perfect scenario (data generated exactly according to the model). 
+
+```{r, echo=FALSE}
+# res = three_experiments(experiment0, H, d, R, continuous = TRUE)
+# save(res, file="temp_res0_cont.RData")
+load("temp_res0_cont.RData")
+df.m = res %>%
+  melt(measure.vars = c("train", "test")) 
+
+ggplot(df.m, aes(variable, value, col=variable)) + 
+  geom_boxplot() + facet_wrap(~ type) + 
+  theme_bw() + ylim(0, 1) + 
+  ylab("Rsquared") + xlab("") + 
+  scale_color_brewer(palette="Set1")
+
+```
+
+### How fast does variational Bayes converge?
+
+(skipped at the moment)
+
+### What if we increase the amount of noise
+
+Lets increase the noise in generating $\boldU$, i.e. explore behaviour w.r.t. $\gamma$ in equation $\boldU_i^{(m)} \sim \N(\boldV_i \boldW^{(m)}, \frac{1}{\gamma_m} \boldI)$. 
+
+```{r}
+# gammas = c(0.01, 1, 100)
+# type = c("gaussian", "gaussian")
+# res1 = experiment_gamma(gammas, H, d, type, R, continuous = TRUE)
+# type = c("gaussian", "ordinal")
+# res2 = experiment_gamma(gammas, H, d, type, R, continuous = TRUE)
+# type = c("ordinal", "ordinal")
+# res3 = experiment_gamma(gammas, H, d, type, R, continuous = TRUE)
+# df = data.frame(rbind(res1, res2, res3), type = rep(c("gaussian + gaussian", "gaussian + ordinal", "ordinal + ordinal"), each=nrow(res1)))
+# save(df, file="temp_gamma_cont.RData")
+load("temp_gamma_cont.RData")
+
+df.m = df %>%
+  melt(measure.vars = c("train", "test")) 
+
+ggplot(df.m, aes(factor(1/gamma), value, col=variable)) + 
+  geom_boxplot() + facet_wrap(~ type) + 
+  theme_bw() + ylim(0, 1) + 
+  xlab("1 / gamma") + ylab("Rsquared") + 
+  scale_color_brewer(palette="Set1")
+```
+
+
+### Can the model (ARD prior) handle large number of irrelevant features?
+
+Each view has (10 + irrelevant) features now
+
+```{r, echo=FALSE}
+# n_irrelevant_features = c(0, 10, 100, 1000, 10000)
+# type = c("gaussian", "gaussian")
+# res1 = experiment1(n_irrelevant_features, H, d, type, n_rep = 5, continuous = TRUE)
+# type = c("gaussian", "ordinal")
+# res2 = experiment1(n_irrelevant_features, H, d, type, n_rep = 5, continuous = TRUE)
+# type = c("ordinal", "ordinal")
+# res3 = experiment1(n_irrelevant_features, H, d, type, n_rep = 5, continuous = TRUE)
+# res = data.frame(rbind(res1, res2, res3), type = rep(c("gaussian + gaussian", "gaussian + ordinal", "ordinal + ordinal"), each=nrow(res1)))
+# save(res, file="temp_ard_cont.RData")
+
+load("temp_ard_cont.RData")
+df.m = res %>%
+  melt(measure.vars = c("train", "test")) 
+
+ggplot(df.m, aes(factor(n_irrelevant_features), value, col=variable)) + 
+  geom_boxplot() + facet_wrap(~ type) + 
+  theme_bw() + ylim(0, 1) + 
+  xlab("Number of irrelevant features") + ylab("Rsquared") + 
+  scale_color_brewer(palette="Set1")
+```
+
+### What if the dimensionality of latent space is misspecified?
+
+In the generated data, the underlying latent space was 6-dimensional. When fitting the model, lets consider misspecified values $\{2, 4 < 6 < 10, 20\}$. 
+
+```{r, echo=FALSE}
+# R_values = c(2, 4, 10, 20)
+# type = c("gaussian", "gaussian")
+# res1 = experiment2(R_values, H, d, type, n_rep = 5, continuous = TRUE)
+# type = c("gaussian", "ordinal")
+# res2 = experiment2(R_values, H, d, type, n_rep = 5, continuous = TRUE)
+# type = c("ordinal", "ordinal")
+# res3 = experiment2(R_values, H, d, type, n_rep = 5, continuous = TRUE)
+# res = data.frame(rbind(res1, res2, res3), type = rep(c("gaussian + gaussian", "gaussian + ordinal", "ordinal + ordinal"), each=nrow(res1)))
+# save(res, file="temp_res2_cont.RData")
+load("temp_res2_cont.RData")
+df.m = res %>%
+  melt(measure.vars = c("train", "test")) 
+
+ggplot(df.m, aes(factor(latent_dim), value, col=variable)) + 
+  geom_boxplot() + facet_wrap(~ type) + 
+  theme_bw() + ylim(0, 1) + 
+  xlab("Latent space dimensionality") + ylab("Prediction accuracy") + 
+  scale_color_brewer(palette="Set1")
+
+```
+
+
+### What if there are multiple correlated features?
+
+To generate a scenario where there are multiple correlated features, for example
+
+1. One way would be to generate $\boldU$ from $\boldV$ and $\boldW$ as usual, and then modify $\boldU$ by taking its columns and adding new correlated ones
+2. Another way would be to create correlated columns in $\boldW$ (i.e. deviate from the assumption that the elements within the row of $\boldW$ are uncorrelated)
+
+Lets start with approach 2. Having constructed original $\boldW^{(m)}$, add $\{1, 5, 10\}$ correlated copies of its columns (correlation with original feature around 0.8). 
+
+```{r}
+# n_added = c(1, 5, 10)
+# type = c("gaussian", "gaussian")
+# res1 = experiment_correlated_features(n_added, H, d, type, R, continuous = TRUE)
+# type = c("gaussian", "ordinal")
+# res2 = experiment_correlated_features(n_added, H, d, type, R, continuous = TRUE)
+# type = c("ordinal", "ordinal")
+# res3 = experiment_correlated_features(n_added, H, d, type, R, continuous = TRUE)
+# df = data.frame(rbind(res1, res2, res3), 
+#                  type = rep(c("gaussian + gaussian", "gaussian + ordinal", "ordinal + ordinal"), each=nrow(res1)))
+# save(df, file="temp_correlatedfeatures_cont.RData")
+
+load("temp_correlatedfeatures_cont.RData")
+df.m = df %>%
+  melt(measure.vars = c("train", "test")) 
+ggplot(df.m, aes(factor(n_added), value, col=variable)) + 
+  geom_boxplot() + facet_wrap(~ type) + 
+  theme_bw() + ylim(0, 1) + 
+  xlab("Number of correlated copies of features") + ylab("Prediction accuracy") + 
+  scale_color_brewer(palette="Set1")
+
+```
+
+
+### What if the Gaussianity assumption is violated?
+
+In $\boldU_i^{(m)} \sim \N(\boldV_i \boldW^{(m)}, \frac{1}{\gamma_m} \boldI)$, we can replace the Gaussian distribution with Student t distribution (df=1) with heavier tails. Note that if $\gamma$ is small, the effect of this is also small. In these experiments $\gamma=1$.  
+
+In principle, we could also ask a similar question about Gaussianity in $\boldV$ or $\boldW$, but currently skip this. 
+
+```{r}
+# df2 = three_experiments(experiment_gaussianity, H, d, R, use_t_distr = TRUE, df = 1, continuous = TRUE)
+# df2$noise = "t distribution\n(df=1)"
+# df3 = three_experiments(experiment_gaussianity, H, d, R, use_t_distr = TRUE, df = 2, continuous = TRUE)
+# df3$noise = "t distribution\n(df=2)"
+# load("temp_gamma_cont.RData")
+# 
+# df.m =  df %>%
+#   filter(gamma == 1) %>%
+#   select(-gamma) %>%
+#   mutate(noise = "Gaussian") %>%
+#   rbind(df2) %>% rbind(df3) %>%
+#   melt(measure.vars = c("train", "test")) 
+# save(df.m, file="temp_t_distribution_cont.RData")
+load("temp_t_distribution_cont.RData")
+ggplot(df.m, aes(noise, value, col=variable)) + 
+  geom_boxplot() + facet_wrap(~ type) + 
+  theme_bw() + ylim(0, 1) + 
+  xlab("") + ylab("Rsquared") + 
+  scale_color_brewer(palette="Set1")
+
+```
+
+Quite a large drop in performance. 
+
+But what if we apply a **rank-based inverse-normal transformation** to the (Gaussian) features before using our method. 
+
+Example of "before" and "after normalisation"
+
+```{r}
+set.seed(0)
+n = 100
+x = runif(n) + rt(n, df=2)
+z = inversenormal(x)
+par(mfrow = c(1, 3))
+hist(x, breaks=50, main="original"); hist(z, breaks=50, main="transformed"); plot(x, z, main="scatterplot", xlab="before", ylab="after")
+```
+
+
+```{r}
+# H = rbind(c(1, 1, 1, 1), 
+#           c(1, 1, 1, 0), 
+#           c(1, 0, 1, 1), 
+#           c(1, 1, 0, 1), 
+#           c(1, 0, 0, 1), 
+#           c(0, 1, 1, 0))
+# d = 2*c(10, 10, 10, 10)
+# type = rep("gaussian", length(d))
+# df1 = experiment_gaussianity(H, d, type, R, n_rep = 10, use_t_distr = TRUE, transformation = FALSE, continuous = TRUE)
+# df2 = experiment_gaussianity(H, d, type, R, n_rep = 10, use_t_distr = TRUE, transformation = TRUE, continuous = TRUE)
+# df = rbind(cbind(df1, noise = "t distribution"), cbind(df2, noise = "rank transformed\nt distribution"))
+# df.m = melt(df, measure.vars = c("train", "test"))
+# save(df.m, file="temp_transformation_cont.RData")
+load("temp_transformation_cont.RData")
+ggplot(df.m, aes(noise, value, col=variable)) + 
+  geom_boxplot() + 
+  theme_bw() + ylim(0, 1) + 
+  xlab("") + ylab("Rsquared") + 
+  scale_color_brewer(palette="Set1")
+
+```
+
+Improved performance! 
+
+### What if some of the views have been mislabelled?
+
+Generate data with 4 views, each consisting of 10 Gaussian variables. Now, switch the labels for $\{0, 0.05, 0.1, .., 0.5\}$ proportion of training individuals (x-axis) for $\{1, 2, 3, 4\}$ views (shown in separate panels). Note that we did not modify any training data. 
+
+```{r, fig.width=10}
+# H = rbind(c(1, 1, 1, 1), 
+#           c(1, 1, 1, 0), 
+#           c(1, 0, 1, 1), 
+#           c(1, 1, 0, 1), 
+#           c(1, 0, 0, 1), 
+#           c(0, 1, 1, 0))
+# 
+# set.seed(0)
+# R = nrow(H)
+# d = c(10, 10, 10, 10)
+# type = rep("gaussian", 4)
+# df = data.frame()
+# for(i in 1:5){
+#   temp = experiment_label_switching(c(0, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5), H, d, type, R, n_views = c(1, 2, 3, 4), continuous=TRUE)
+#   temp$iter = i
+#   df = rbind(df, temp)
+# }
+# save(df, file="temp_label_switching_cont.RData")
+load("temp_label_switching_cont.RData")
+df.m = melt(df, measure.vars = c("test", "train"))
+ggplot(df.m, aes(factor(prop_switched), value, col = variable, group=paste(iter, variable))) + geom_line() + 
+  facet_wrap(~n_views, nrow=1) + theme_bw() + ylim(0, 1) + 
+  xlab("Proportion of switched labels in training data") + 
+  scale_color_brewer(palette="Set1")
+
+```
+
