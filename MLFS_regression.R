@@ -238,7 +238,7 @@ MLFS_regression = function(y, X_list, type, R, max_iter=10, rotate=TRUE, d_sim =
     residuals = y - ypred
     for(k in 1:C){
       a_lambda = (1e-3 + 0.5*N)
-      b_lambda = as.numeric(1e-3 + 0.5*sum(residuals[, k]**2) + Erho[k] * t(Ebeta[, k]) %*% Ebeta[, k])
+      b_lambda = as.numeric(1e-3 + 0.5*sum(residuals[, k]**2) + 0.5*Erho[k] * t(Ebeta[, k]) %*% Ebeta[, k])
       Elambda[k] = a_lambda / b_lambda
       lowerbound_yz = lowerbound_yz - 0.5*Elambda[k]*sum(residuals[, k]**2) +
         lgamma(a_lambda) - a_lambda*log(b_lambda) + a_lambda 

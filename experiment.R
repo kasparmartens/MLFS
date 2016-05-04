@@ -8,6 +8,7 @@ source("rotation.R")
 source("ordinal_cutpoints.R")
 source("MLFS.R")
 source("MLFS_regression.R")
+source("MLFS_mcmc.R")
 source("generate_data.R")
 
 # H = rbind(c(1, 1), 
@@ -370,6 +371,39 @@ experiment_label_switching = function(prop_individuals = 0.1, H, d, type, R, n_v
       }
     }
     data.frame(test = pred_acc, train = pred_acc_train, prop_switched = prop_individuals, n_views = n_views[j])
+  }
+  return(df)
+}
+
+generate_missing_data = function(X, prop, n_views){
+  if(prop == 0) return(X)
+  N = nrow(X[[1]])
+  M = length(X)
+  for(j in sample(1:M, n_views)){
+    selected_individuals = sample(1:N, floor(prop*N))
+    X[[j]][selected_individuals, ] = NA
+  }
+  return(X)
+}
+
+experiment_missing_data = function(prop_individuals = 0.1, H, d, type, R, n_views = 1, n_rep = 5){
+  K = length(prop_individuals)
+  df = foreach(k = 1:n_rep, .combine="rbind") %dopar% {
+    latent_data = generate_latent_subspace(H, N = 200, d = d, gamma = 10)
+    y = generate_y(latent_data$V, C = 2, continuous = FALSE)
+    X0 = generate_X(latent_data$U_list, type)
+    data = split_into_train_and_test(X0, y, prop=0.5)
+    foreach(j = 1:length(n_views), .combine = "rbind") %dopar% {
+      pred_acc_train = rep(NA, K)
+      pred_acc = rep(NA, K)
+      for(i in 1:K){
+        Xmis = generate_missing_data(data$trainX, prop_individuals[i], n_views[j])
+        MLFSobj = MLFS_mcmc(data$trainy, Xmis, data$testy, data$testX, type, R, max_iter=200, verbose=FALSE)
+        pred_acc_train[i] = MLFSobj$pred_acc_train
+        pred_acc[i] = MLFSobj$pred_acc_test
+      }
+      data.frame(test = pred_acc, train = pred_acc_train, prop_missing = prop_individuals, n_views = n_views[j])
+    }
   }
   return(df)
 }
