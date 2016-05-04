@@ -76,7 +76,7 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
     }
     
     ### sample V
-    sigmainv_V = diag(R) + matrix_list_sum(lapply(1:M, function(j){
+    sigmainv_V = diag(R) + beta %*% t(beta) + matrix_list_sum(lapply(1:M, function(j){
       gamma[j] * W[[j]] %*% t(W[[j]])
     }))
     sigma_V = solve(sigmainv_V + 1e-6)
@@ -87,6 +87,8 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
       mu_i = (z[i]*beta + mu_tmp) %*% sigma_V
       V[i, ] = rmvnorm(1, mu_i, sigma_V)
     }
+    sigmainv_V = sigmainv_V - beta %*% t(beta)
+    sigma_V = solve(sigmainv_V + 1e-6)
     for(i in 1:Ntest){
       mu_tmp = update_V_mu_individual_i(i, Utest, W, gamma, M)
       mu_i = mu_tmp %*% sigma_V
