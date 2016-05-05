@@ -1,0 +1,79 @@
+---
+output: html_document
+---
+
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.width=10, fig.height=8)
+```
+
+### MCMC diagnostics
+
+```{r}
+source("helpers.R")
+source("par_updates.R")
+source("rotation.R")
+source("ordinal_cutpoints.R")
+source("MLFS.R")
+source("MLFS_regression.R")
+source("MLFS_mcmc.R")
+source("generate_data.R")
+
+set.seed(1)
+
+H = rbind(c(1, 1, 1, 1), 
+          c(1, 1, 1, 0), 
+          c(1, 0, 1, 1), 
+          c(1, 1, 0, 1), 
+          c(1, 0, 0, 1), 
+          c(0, 1, 1, 0))
+
+R = nrow(H)
+d = c(10, 10, 10, 10)
+type = rep("gaussian", length(d))
+latent_data = generate_latent_subspace(H, N = 200, d = d, gamma = 10)
+y = generate_y(latent_data$V, C = 2, continuous = FALSE)
+X0 = generate_X(latent_data$U_list, type)
+data = split_into_train_and_test(X0, y, prop=0.5)
+MLFSobj = MLFS_mcmc(data$trainy, data$trainX, data$testy, data$testX, type, R, max_iter=2000, verbose=TRUE)
+
+```
+
+Overall accuracies (majority vote over iterations)
+
+```{r}
+MLFSobj$pred_acc_train
+MLFSobj$pred_acc_test
+
+```
+
+
+### Trace plots for beta
+
+We specified the latent space to be 6 dimensional, so beta will have 6 components
+
+```{r}
+traceplot(MLFSobj$beta_trace)
+
+```
+
+Hmm, don't look too nice...
+
+And the latent variable $z$ used in classification, $\Pr(y_i = 1) = \Phi(z)$, where $z = V \beta$, see [Albert and Chib](http://www.stat.cmu.edu/~brian/905-2009/all-papers/albert-chib-1993.pdf) for details. Lets see the trace plots for four random individuals
+
+```{r}
+traceplot(MLFSobj$z_trace[, sample(1:100, 4)])
+```
+
+
+### Trace plots for log posteriors
+
+Let's observe $\sum_{m} \log p(X^m | \text{everything else})$ and $\log p(y | \text{everything else})$
+
+```{r}
+par(mfrow=c(2, 1))
+plot(MLFSobj$loglik_U_trace, type="l")
+plot(MLFSobj$loglik_y_trace, type="l")
+
+```
+
