@@ -9,7 +9,7 @@ knitr::opts_chunk$set(fig.width=10, fig.height=8)
 
 ### MCMC diagnostics
 
-```{r}
+```{r, fig.height = 5}
 source("helpers.R")
 source("par_updates.R")
 source("rotation.R")
