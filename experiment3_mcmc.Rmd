@@ -17,9 +17,10 @@ source("ordinal_cutpoints.R")
 source("MLFS.R")
 source("MLFS_regression.R")
 source("MLFS_mcmc.R")
+source("MLFS_mcmc_regression.R")
 source("generate_data.R")
 
-set.seed(1)
+set.seed(123)
 
 H = rbind(c(1, 1, 1, 1), 
           c(1, 1, 1, 0), 
@@ -31,7 +32,7 @@ H = rbind(c(1, 1, 1, 1),
 R = nrow(H)
 d = c(10, 10, 10, 10)
 type = rep("gaussian", length(d))
-latent_data = generate_latent_subspace(H, N = 200, d = d, gamma = 10)
+latent_data = generate_latent_subspace(H, N = 200, d = d, gamma = 1000)
 y = generate_y(latent_data$V, C = 2, continuous = FALSE)
 X0 = generate_X(latent_data$U_list, type)
 data = split_into_train_and_test(X0, y, prop=0.5)
@@ -76,4 +77,3 @@ plot(MLFSobj$loglik_U_trace, type="l")
 plot(MLFSobj$loglik_y_trace, type="l")
 
 ```
-
