@@ -1,6 +1,9 @@
 library(ggplot2)
 library(dplyr)
 library(reshape2)
+library(doParallel)
+library(foreach)
+registerDoParallel(cores = 16)
 
 source("helpers.R")
 source("par_updates.R")
@@ -9,6 +12,7 @@ source("ordinal_cutpoints.R")
 source("MLFS.R")
 source("MLFS_regression.R")
 source("MLFS_mcmc.R")
+source("MLFS_mcmc_regression.R")
 source("generate_data.R")
 
 # H = rbind(c(1, 1), 
@@ -118,9 +122,7 @@ experiment_gamma = function(gammas, H, d, type, R, n_rep = 3, n_levels = 3, rota
 
 
 # Experiment with the number of irrelevant features
-library(doParallel)
-library(foreach)
-registerDoParallel(cores = 8)
+
 experiment1 = function(n_irrelevant_features, H, d, type, n_rep = 3, n_levels = 3, continuous = FALSE){
   K = length(n_irrelevant_features)
   pred_acc_train = rep(NA, K)
@@ -386,23 +388,27 @@ generate_missing_data = function(X, prop, n_views){
   return(X)
 }
 
-experiment_missing_data = function(prop_individuals = 0.1, H, d, type, R, n_views = 1, n_rep = 5){
+experiment_missing_data = function(prop_individuals = 0.1, H, d, type, R, n_views = 1, n_rep = 5, max_iter = 200, n_irrelevant_features = 0, continuous = FALSE){
   K = length(prop_individuals)
   df = foreach(k = 1:n_rep, .combine="rbind") %dopar% {
-    latent_data = generate_latent_subspace(H, N = 200, d = d, gamma = 10)
-    y = generate_y(latent_data$V, C = 2, continuous = FALSE)
+    latent_data = generate_latent_subspace(H, N = 200, d = d, gamma = 1)
+    y = generate_y(latent_data$V, C = 2, continuous = continuous)
     X0 = generate_X(latent_data$U_list, type)
-    data = split_into_train_and_test(X0, y, prop=0.5)
+    X1 = add_irrelevant_features(X0, type, n_irrelevant_features)
+    data = split_into_train_and_test(X1, y, prop=0.5)
     foreach(j = 1:length(n_views), .combine = "rbind") %dopar% {
-      pred_acc_train = rep(NA, K)
-      pred_acc = rep(NA, K)
-      for(i in 1:K){
+      foreach(i = 1:K, .combine = "rbind") %do% {
         Xmis = generate_missing_data(data$trainX, prop_individuals[i], n_views[j])
-        MLFSobj = MLFS_mcmc(data$trainy, Xmis, data$testy, data$testX, type, R, max_iter=200, verbose=FALSE)
-        pred_acc_train[i] = MLFSobj$pred_acc_train
-        pred_acc[i] = MLFSobj$pred_acc_test
+        Xtestmis = generate_missing_data(data$testX, prop_individuals[i], n_views[j])
+        if(continuous){
+          MLFSobj = MLFS_mcmc_regression(data$trainy, Xmis, data$testy, Xtestmis, type, R, max_iter=max_iter, verbose=FALSE)
+        } else{
+          MLFSobj = MLFS_mcmc(data$trainy, Xmis, data$testy, Xtestmis, type, R, max_iter=max_iter, verbose=FALSE)
+        }
+        pred_acc_train = MLFSobj$pred_acc_train
+        pred_acc = MLFSobj$pred_acc_test
+        data.frame(test = pred_acc, train = pred_acc_train, prop_missing = prop_individuals[i], n_views = n_views[j])
       }
-      data.frame(test = pred_acc, train = pred_acc_train, prop_missing = prop_individuals, n_views = n_views[j])
     }
   }
   return(df)

@@ -1,0 +1,83 @@
+---
+output: html_document
+---
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.width=10, fig.height=8, echo=FALSE,message=FALSE)
+```
+
+### Missing data
+
+Hide $\{0\%, 25\%, 50\%, 75\%\}$ of the data in $\{1, 2, 3\}$ of the views. That is, 
+
+- based on the values in the latent space, generate data for 4 gaussian views, each with 10 features, and the outcome y
+- do for $\{1, 2, 3\}$ of the views
+    - pick a view
+    - choose randomly $\{0\%, 25\%, 50\%, 75\%\}$ of individuals and set their values in the current view to NA, both in training and test data
+- observe accuracy on test data
+
+Also see, what happens, if there are irrelevant features present. 
+
+Consider two cases: binary classification, and univariate regression. 
+
+```{r}
+# source("experiment.R")
+# H = rbind(c(1, 1, 1, 1), 
+#           c(1, 1, 1, 0), 
+#           c(1, 0, 1, 1), 
+#           c(1, 1, 0, 1), 
+#           c(1, 0, 0, 1), 
+#           c(0, 1, 1, 0))
+# 
+# set.seed(0)
+# R = nrow(H)
+# d = c(10, 10, 10, 10)
+# type = rep("gaussian", 4)
+# res0 = experiment_missing_data(prop_individuals = c(0, 0.25, 0.5, 0.75), H, d, type, R, n_views = c(1, 2, 3), max_iter = 1000, n_irrelevant_features = 0, continuous = FALSE)
+# res1 = experiment_missing_data(prop_individuals = c(0, 0.25, 0.5, 0.75), H, d, type, R, n_views = c(1, 2, 3), max_iter = 1000, n_irrelevant_features = 1, continuous = FALSE)
+# res2 = experiment_missing_data(prop_individuals = c(0, 0.25, 0.5, 0.75), H, d, type, R, n_views = c(1, 2, 3), max_iter = 1000, n_irrelevant_features = 10, continuous = FALSE)
+
+# res0 = experiment_missing_data(prop_individuals = c(0, 0.25, 0.5, 0.75), H, d, type, R, n_views = c(1, 2, 3), max_iter = 5000, n_irrelevant_features = 0, continuous = TRUE)
+# res1 = experiment_missing_data(prop_individuals = c(0, 0.25, 0.5, 0.75), H, d, type, R, n_views = c(1, 2, 3), max_iter = 5000, n_irrelevant_features = 1, continuous = TRUE)
+# res2 = experiment_missing_data(prop_individuals = c(0, 0.25, 0.5, 0.75), H, d, type, R, n_views = c(1, 2, 3), max_iter = 5000, n_irrelevant_features = 10, continuous = TRUE)
+
+
+```
+
+### Binary classification
+
+Performance (fraction of correct classes, y-axis) on test data, for various amounts of missingess (x-axis) in one or several views (panels from left to right). 
+
+```{r}
+library(ggplot2)
+library(dplyr)
+load("temp_mcmc_imputation.RData")
+df = rbind(mutate(res0, "irrelevant_features" = 0), 
+           mutate(res2, "irrelevant_features" = 100)) %>%
+  mutate(n_views = paste0("missingness_in_", n_views, "_views"), 
+         irrelevant_features = paste0(irrelevant_features, "_irrelevant_features"))
+
+ggplot(df, aes(factor(prop_missing), test)) + geom_boxplot() + theme_bw() +
+  facet_grid(irrelevant_features~n_views) + ylim(0, 1) + 
+  xlab("Proportion of individuals with NA") + 
+  ylab("Prediction accuracy (test data)")
+```
+
+### Regression 
+
+```{r}
+library(ggplot2)
+library(dplyr)
+load("temp_mcmc_imputation_cont.RData")
+df = rbind(mutate(res0, "irrelevant_features" = 0), 
+           mutate(res2, "irrelevant_features" = 100)) %>%
+  mutate(n_views = paste0("missingness_in_", n_views, "_views"), 
+         irrelevant_features = paste0(irrelevant_features, "_irrelevant_features"))
+
+ggplot(df, aes(factor(prop_missing), test)) + geom_boxplot() + theme_bw() +
+  facet_grid(irrelevant_features~n_views) + ylim(0, 1) + 
+  xlab("Proportion of individuals with NA") + 
+  ylab("Rsquared (test data)")
+```
+
+Conclusion: Even 50\% of missingness in 3 out of 4 views is still sufficient for reasonable accuracy. 
