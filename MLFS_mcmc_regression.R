@@ -1,12 +1,7 @@
-library(mvtnorm)
-library(truncnorm)
-library(pheatmap)
-
-MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5, verbose = TRUE, burnin = 100, label_switching = FALSE){
+MLFS_mcmc_regression = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5, verbose = TRUE, burnin = 100, label_switching = FALSE){
   N = length(y)
   M = length(X_list)
   d = ifelse(type != "similarity", sapply(X_list, ncol), d_sim)
-  C = max(y)
   #if(sum(!(y %in% 1:max(y))) > 0) stop("y must have labels 1, 2, ..., C")
   if(sum(sapply(X_list, class) != "matrix") > 0) stop("X_list must contain matrices only!")
   
@@ -51,9 +46,8 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
   U_initial = U
   
   # initialise z, beta
-  z = rep(0, N)
-  ztest = rep(0, Ntest)
   beta = rep(0, R)
+  pred_test = rep(0, Ntest)
   beta_trace = matrix(NA, max_iter, R)
   pred_trace = matrix(NA, max_iter, N)
   pred_test_trace = matrix(NA, max_iter, N)
@@ -66,7 +60,7 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
   current_indexes = 1:N
   
   if(verbose) cat("Running Variational Bayes for 20 iterations to obtain starting values ... \n")
-  MLFSinit = MLFS(y, X_imputed, type, R, max_iter=20, verbose=FALSE)
+  MLFSinit = MLFS_regression(y, X_imputed, type, R, max_iter=20, verbose=FALSE)
   if(verbose) cat("\tFinished VB. Now starting Gibbs sampling\n")
   
   V = MLFSinit$Ev
@@ -105,14 +99,14 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
     random = rmvnorm(N, rep(0, R), sigma_V)
     for(i in 1:N){
       mu_tmp = update_V_mu_individual_i(i, U, W, gamma, M)
-      mu_i = (z[i]*beta + mu_tmp) %*% sigma_V
+      mu_i = (y[i]*beta + mu_tmp) %*% sigma_V
       V[i, ] = mu_i + random[i, ]
     }
     
     randomtest = rmvnorm(Ntest, rep(0, R), sigma_V)
     for(k in 1:Ntest){
       mu_tmp = update_V_mu_individual_i(k, Utest, W, gamma, M)
-      mu_i = (ztest[k]*beta + mu_tmp) %*% sigma_V
+      mu_i = (pred_test[k]*beta + mu_tmp) %*% sigma_V
       Vtest[k, ] = mu_i + randomtest[k, ]
     }
     
@@ -129,67 +123,31 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
       }
     }
     
-#     loglik_U = 0
-#     for(j in 1:M){
-#       mu_U = V %*% W[[j]]
-#       sigma_U = 1 / gamma[j] * diag(d[j])
-#       for(i in 1:N){
-#         loglik_U = loglik_U + dmvnorm(U[[j]][i, ], mu_U[i, ], sigma_U, log=TRUE)
-#       }
-#     }
-#     loglik_U_trace[iter] = loglik_U
-    
-#     ### regression
-#     sigma_beta_inv = rho*diag(R) + t(V)%*%V
-#     sigma_beta = solve(sigma_beta_inv)
-#     beta_mu = sigma_beta %*% t(V) %*% y
-#     a_lambda = 1e-3 + 0.5*N
-#     residuals = y - mean(y)
-#     b_lambda = as.numeric(1e-3 + 0.5*(sum(residuals**2) - t(beta_mu)%*%sigma_beta_inv%*%beta_mu))
-#     lambda = rgamma(1, a_lambda, b_lambda)
-#     beta = as.numeric(t(beta_mu) + rmvt(1, b_lambda/a_lambda*sigma_beta, 2*a_lambda))
-#     pred = V %*% beta
-#     pred_trace[iter, ] = pred
-    
-    ### For classification follow Albert & Chib 1993
-    # sample beta
-    sigma_beta = solve(rho * diag(R) + t(V) %*% V)
-    mu_beta = sigma_beta %*% t(V) %*% z
-    beta = as.numeric(rmvnorm(1, mu_beta, sigma_beta))
+    #     loglik_U = 0
+    #     for(j in 1:M){
+    #       mu_U = V %*% W[[j]]
+    #       sigma_U = 1 / gamma[j] * diag(d[j])
+    #       for(i in 1:N){
+    #         loglik_U = loglik_U + dmvnorm(U[[j]][i, ], mu_U[i, ], sigma_U, log=TRUE)
+    #       }
+    #     }
+    #     loglik_U_trace[iter] = loglik_U
+
+    ### regression
+    sigma_beta_inv = rho*diag(R) + t(V)%*%V
+    sigma_beta = solve(sigma_beta_inv)
+    beta_mu = sigma_beta %*% t(V) %*% y
+    a_lambda = 1e-3 + 0.5*N
+    b_lambda = as.numeric(1e-3 + 0.5*(sum(y**2) - t(beta_mu)%*%sigma_beta_inv%*%beta_mu))
+    lambda = rgamma(1, a_lambda, b_lambda)
+    beta = as.numeric(t(beta_mu) + rmvt(1, b_lambda/a_lambda*sigma_beta, 2*a_lambda))
     beta_trace[iter, ] = beta
-      
-    # sample z
-    z_mu = V %*% beta
-    subset = (y == 2)
-    if(sum(subset)>0) z[subset] = rtruncnorm(sum(subset), a=0, mean=z_mu[subset], sd=1)
-    subset = (y == 1)
-    if(sum(subset)>0) z[subset] = rtruncnorm(sum(subset), b=0, mean=z_mu[subset], sd=1)
     
-    z_mu_test = Vtest %*% beta
-    if(iter == 1){
-      ztest = z_mu_test      
-    } else{
-      subset = (ytest == 2)
-      if(sum(subset)>0) ztest[subset] = rtruncnorm(sum(subset), a=0, mean=z_mu_test[subset], sd=1)
-      subset = (ytest == 1)
-      if(sum(subset)>0) ztest[subset] = rtruncnorm(sum(subset), b=0, mean=z_mu_test[subset], sd=1)
-    }
-    
-    z_trace[iter, ] = z
-    
-    pred_train = rbinom(N, 1, pnorm(z)) + 1
+    pred_train = V %*% beta + rt(N, df = 2*a_lambda) * sqrt(diag(b_lambda/a_lambda*(diag(N)+V%*%sigma_beta%*%t(V))))
+    pred_test = Vtest %*% beta + rt(Ntest, df = 2*a_lambda) * sqrt(diag(b_lambda/a_lambda*(diag(Ntest)+Vtest%*%sigma_beta%*%t(Vtest))))
     pred_trace[iter, ] = pred_train
-    
-    pred_test = rbinom(Ntest, 1, pnorm(ztest)) + 1
-    ytest = pred_test
     pred_test_trace[iter, ] = pred_test
     
-    loglik_y = 0
-    for(i in 1:N){
-      prob = pnorm(z_mu[i, ], 0, 1)
-      loglik_y = loglik_y + ifelse(y[i]==2, log(prob), log(1-prob))
-    }
-    loglik_y_trace[iter] = loglik_y
     
     if(label_switching){
       proposal_indexes = switch_two_labels(current_indexes)$x
@@ -204,19 +162,18 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
         cat("Changed view", proposal_view, "indexes", which(proposal_indexes != 1:N), "\n")
       }
     }
-
-
+    
+    
     
     if((iter %% 100 == 0)){
       # plot_heatmap(W, main=sprintf("Iter %s", iter), cluster_rows = FALSE)
-      if(verbose) cat(sprintf("Iter %d. Prediction accuracies: train %1.3f, test %1.3f \n", iter, mean(pred_train == y), mean(pred_test == y_test)))
-      # cat("iter", iter, "pred acc train:", mean(pred_train == y), "pred acc test:", mean(pred_test == y_test), "\n")
+      if(verbose) cat(sprintf("Iter %d. Prediction accuracies: train %1.3f, test %1.3f \n", iter, cor(pred_train, y)**2, cor(pred_test, y_test)**2))
     }
   }
-  pred_train = round(apply(pred_trace[-c(1:burnin), ], 2, mean))
-  pred_test = round(apply(pred_test_trace[-c(1:burnin), ], 2, mean))
-  pred_acc_train = mean(pred_train == y)
-  pred_acc_test = mean(pred_test == y_test)
+  pred_train = (apply(pred_trace[-c(1:burnin), ], 2, mean))
+  pred_test = (apply(pred_test_trace[-c(1:burnin), ], 2, mean))
+  pred_acc_train = cor(pred_train, y)**2
+  pred_acc_test = cor(pred_test, y_test)**2
   
   return(list(pred_train = pred_train, pred_acc_train = pred_acc_train, 
               pred_test_trace = pred_test_trace[-c(1:burnin), ],  
@@ -224,61 +181,3 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
               beta_trace = beta_trace, z_trace = z_trace, W_trace = W_trace, 
               loglik_U_trace = loglik_U_trace, loglik_y_trace = loglik_y_trace))
 }
-
-pred_out_of_sample_mcmc_regression = function(MLFSobj, X_test){
-#   Ntest = nrow(X_test[[1]])
-#   M = length(X_test)
-#   
-#   sigmainv_V = diag(R) + matrix_list_sum(lapply(1:M, function(j){
-#     gamma[j] * W[[j]] %*% t(W[[j]])
-#   }))
-#   sigma_V = solve(sigmainv_V + 1e-6)
-#   
-#   
-#   for(i in 1:N){
-#     mu_tmp = update_V_mu_individual_i(i, U, W, gamma, M)
-#     mu_i = (z[i]*beta + mu_tmp) %*% sigma_V
-#     V[i, ] = rmvnorm(1, mu_i, sigma_V)
-#   }
-}
-
-### update H
-# update_H_and_W = function(U, V, W, alpha, gamma, pi, d, M, R){
-#   H = matrix(0, M, R)
-#   for(j in 1:M){
-#     s2 = 1/alpha[j, ] + gamma[j] * diag(t(V) %*% V) # sapply(1:ncol(V), function(r)t(V[, r]) %*% V[, r])
-#     Ures = U[[j]] - V %*% W[[j]]
-#     mu = gamma[j] * t(Ures) %*% V %*% diag(1 / s2)
-#     z = logit(pi[j]) + 0.5*d[j]*log(s2 * alpha[j, ]) + 0.5*diag(t(mu) %*% mu) / s2
-#     acceptance_probs = 1 / (1 + exp(-z))
-#     print(acceptance_probs)
-#     u = runif(R)
-#     H[j, ] = ifelse(u < acceptance_probs, 1, 0)
-#     W_fill = mu + rnorm(R*d[j])*sqrt(rep(s2, each=d[j]))
-#     W[[j]] = matrix(W_fill * rep(H[j, ], d[j]), R, d[j])
-#   }
-#   return(list(H = H, W = W))W[[j]][r, ]
-# }
-
-update_H_and_W = function(U, V, W, alpha, gamma, pi, d, M, R, iter){
-  H = matrix(0, M, R)
-  for(j in 1:M){
-    for(r in 1:R){
-      lambda = (alpha[j, r] + gamma[j] * sum(V[, r] * V[, r]))
-      Ures = U[[j]] - V[, -r] %*% W[[j]][-r, ]
-      mu = gamma[j] / lambda * t(Ures) %*% V[, r]
-      z = logit(pi[j]) - 0.5*d[j]*log(lambda * alpha[j, r]) + 0.5*lambda*sum(mu**2)
-      acceptance_prob = 1 / (1 + exp(-z))
-      # if(iter %% 10 == 0) cat("accept prob", acceptance_prob,"\n")
-      u = runif(1)
-      H[j, r] = ifelse(u < acceptance_prob, 1, 0)
-      W_fill = mu + rnorm(d[j])*sqrt(1/lambda)
-      W[[j]][r, ] = W_fill * H[j, r]
-    }
-  }
-  return(list(H = H, W = W))
-}
-
-
-
-

@@ -74,7 +74,8 @@ split_into_train_and_test = function(X_list, y, prop = 0.8){
   return(list(trainX = trainX, trainy = trainy, testX = testX, testy = testy, testtrainX = testtrainX))
 }
 
-add_irrelevant_features = function(X_list, type, n_features){
+add_irrelevant_features = function(X_list, type, n_features = 0){
+  if(n_features == 0) return(X_list)
   N = nrow(X_list[[1]])
   p = n_features
   for(j in 1:length(type)){

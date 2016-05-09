@@ -5,6 +5,17 @@ vec = function(mat)as.numeric(mat)
 inversenormal = function(x) qnorm(ppoints(length(x))[rank(x)])
 logit = function(p) log((p/(1-p+1e-16)+1e-16))
 
+
+plot_heatmap = function(W, ...){
+  W_concat = do.call("cbind", W)
+  # colnames are needed to add the annotation color
+  if(is.null(colnames(W_concat))) colnames(W_concat) = paste0("test", 1:ncol(W_concat))
+  annotation = data.frame(view = factor(rep(1:length(W), sapply(W, ncol))))
+  rownames(annotation) = colnames(W_concat)
+  pheatmap(abs(W_concat), cluster_cols = F, annotation_col = annotation, ...)
+}
+
+
 check_convergence = function(likelihood, i, convergence_threshold = 1e-6){
   if(i == 1){
     return(FALSE)
@@ -13,6 +24,18 @@ check_convergence = function(likelihood, i, convergence_threshold = 1e-6){
     relative_change = (likelihood[i-1] - likelihood[i]) / likelihood[i-1]
     return(ifelse(relative_change < convergence_threshold, TRUE, FALSE))
   }
+}
+
+impute_with_median = function(mat){
+  colmedians = apply(mat, 2, median, na.rm=T)
+  missing_rows = !complete.cases(mat)
+  missing_entries = is.na(mat)
+  out = mat
+  for(row in which(missing_rows)){
+    which_cols = missing_entries[row, ]
+    out[row, ] = colmedians[which_cols]
+  }
+  out
 }
 
 traceplot = function(mat){

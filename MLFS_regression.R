@@ -243,11 +243,10 @@ MLFS_regression = function(y, X_list, type, R, max_iter=10, rotate=TRUE, d_sim =
       lowerbound_yz = lowerbound_yz - 0.5*Elambda[k]*sum(residuals[, k]**2) +
         lgamma(a_lambda) - a_lambda*log(b_lambda) + a_lambda 
     }
-
-
-  
+    
+    
     pred_acc_train[iter, ] = sapply(1:C, function(k)cor(ypred[, k], y[, k])**2)
-
+    
     lowerbound_vw = - neg_lowerbound_vw + 0.5*lowerbound_W + 0.5*lowerbound_V
     lowerbound[iter] = lowerbound_yz + lowerbound_vw + lowerbound_xu
     
@@ -259,8 +258,8 @@ MLFS_regression = function(y, X_list, type, R, max_iter=10, rotate=TRUE, d_sim =
     #if(check_convergence(lowerbound, iter, 1e-6)) break
   }
   if(verbose) cat("Prediction accuracies (train):", pred_acc_train, "\n")
-  return(list(Ebeta = Ebeta, Ew = Ew, Eww = Eww, sigma_W = sigma_W, sigma_V = sigma_V, 
-              Egamma = Egamma, g = g, Etau = Etau, 
+  return(list(Ebeta = Ebeta, Ew = Ew, Eww = Eww, Ev = Ev, sigma_W = sigma_W, sigma_V = sigma_V, 
+              Egamma = Egamma, g = g, Etau = Etau, Ealpha = Ealpha, 
               lowerbound = lowerbound, 
               Eu_train = Eu, Euu_sum_train = Euu_sum, 
               n_levels = n_levels, type = type, R = R, d = d, d_sim = d_sim, 
