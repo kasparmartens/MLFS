@@ -67,6 +67,8 @@ MLFS_mcmc_regression = function(y, X_list, y_test, X_test, type, R, max_iter=10,
   W = MLFSinit$Ew
   alpha = MLFSinit$Ealpha
   gamma = MLFSinit$Egamma
+  V_mean = matrix(0, N, R)
+  Vtest_mean = matrix(0, Ntest, R)
   
   for(iter in 1:max_iter){
     temp = update_H_and_W(U, V, W, alpha, gamma, pi, d, M, R, iter)
@@ -109,6 +111,9 @@ MLFS_mcmc_regression = function(y, X_list, y_test, X_test, type, R, max_iter=10,
       mu_i = (pred_test[k]*beta + mu_tmp) %*% sigma_V
       Vtest[k, ] = mu_i + randomtest[k, ]
     }
+    
+    V_mean = V_mean + 1/max_iter*V
+    Vtest_mean = Vtest_mean + 1/max_iter*Vtest
     
     ### impute missing values in U
     for(j in 1:M){
@@ -179,5 +184,6 @@ MLFS_mcmc_regression = function(y, X_list, y_test, X_test, type, R, max_iter=10,
               pred_test_trace = pred_test_trace[-c(1:burnin), ],  
               pred_test = pred_test, pred_acc_test = pred_acc_test, 
               beta_trace = beta_trace, z_trace = z_trace, W_trace = W_trace, 
+              V_mean = V_mean, Vtest_mean = Vtest_mean, 
               loglik_U_trace = loglik_U_trace, loglik_y_trace = loglik_y_trace))
 }

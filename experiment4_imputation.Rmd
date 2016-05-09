@@ -3,7 +3,7 @@ output: html_document
 ---
 
 ```{r global_options, include=FALSE}
-knitr::opts_chunk$set(fig.width=10, fig.height=8, echo=FALSE,message=FALSE)
+knitr::opts_chunk$set(fig.width=10, fig.height=8, echo=FALSE,message=FALSE ,warnings=FALSE)
 ```
 
 ### Missing data
@@ -22,20 +22,17 @@ Consider two cases: binary classification, and univariate regression.
 
 ```{r}
 # source("experiment.R")
-# H = rbind(c(1, 1, 1, 1), 
-#           c(1, 1, 1, 0), 
-#           c(1, 0, 1, 1), 
-#           c(1, 1, 0, 1), 
-#           c(1, 0, 0, 1), 
-#           c(0, 1, 1, 0))
+# H = rbind(c(1, 1), 
+#           c(1, 0), 
+#           c(0, 1))
 # 
 # set.seed(0)
 # R = nrow(H)
-# d = c(10, 10, 10, 10)
-# type = rep("gaussian", 4)
-# res0 = experiment_missing_data(prop_individuals = c(0, 0.25, 0.5, 0.75), H, d, type, R, n_views = c(1, 2, 3), max_iter = 1000, n_irrelevant_features = 0, continuous = FALSE)
-# res1 = experiment_missing_data(prop_individuals = c(0, 0.25, 0.5, 0.75), H, d, type, R, n_views = c(1, 2, 3), max_iter = 1000, n_irrelevant_features = 1, continuous = FALSE)
-# res2 = experiment_missing_data(prop_individuals = c(0, 0.25, 0.5, 0.75), H, d, type, R, n_views = c(1, 2, 3), max_iter = 1000, n_irrelevant_features = 10, continuous = FALSE)
+# d = c(10, 10)
+# type = rep("gaussian", length(d))
+# res0 = experiment_missing_data(prop_individuals = c(0, 0.25, 0.5, 0.75), H, d, type, R, n_views = c(1), max_iter = 1000, n_irrelevant_features = 0, continuous = FALSE)
+# res1 = experiment_missing_data(prop_individuals = c(0, 0.25, 0.5, 0.75), H, d, type, R, n_views = c(1), max_iter = 1000, n_irrelevant_features = 1, continuous = FALSE)
+# res2 = experiment_missing_data(prop_individuals = c(0, 0.25, 0.5, 0.75), H, d, type, R, n_views = c(1), max_iter = 1000, n_irrelevant_features = 10, continuous = FALSE)
 
 # res0 = experiment_missing_data(prop_individuals = c(0, 0.25, 0.5, 0.75), H, d, type, R, n_views = c(1, 2, 3), max_iter = 5000, n_irrelevant_features = 0, continuous = TRUE)
 # res1 = experiment_missing_data(prop_individuals = c(0, 0.25, 0.5, 0.75), H, d, type, R, n_views = c(1, 2, 3), max_iter = 5000, n_irrelevant_features = 1, continuous = TRUE)
@@ -81,3 +78,106 @@ ggplot(df, aes(factor(prop_missing), test)) + geom_boxplot() + theme_bw() +
 ```
 
 Conclusion: Even 50\% of missingness in 3 out of 4 views is still sufficient for reasonable accuracy. 
+
+### Two-dimensional latent space
+
+```{r}
+library(ggplot2)
+library(dplyr)
+
+source("helpers.R")
+source("par_updates.R")
+source("rotation.R")
+source("ordinal_cutpoints.R")
+source("MLFS.R")
+source("MLFS_regression.R")
+source("MLFS_mcmc.R")
+source("MLFS_mcmc_regression.R")
+source("generate_data.R")
+
+helper = function(X_list, prop){
+  N = nrow(X_list[[1]])
+  trainind = 1:(N/2)
+  testind = (N/2+1):N
+  missing = c(sample(trainind, prop*N/2), sample(testind, prop*N/2))
+  trainX = list(); testX = list(); testtrainX = list()
+  X_list[[1]][missing, ] = NA
+  for(j in 1:length(X_list)){
+    X = X_list[[j]]
+    trainX[[j]] = X[trainind, ]
+    testX[[j]] = X[-trainind, ]
+  }
+  trainy = y[trainind]
+  testy = y[-trainind]
+  data = list(trainy = trainy, testy = testy, trainX = trainX, testX = testX, missing = missing)
+  return(data)
+}
+
+
+H = rbind(c(1, 1), 
+          c(1, 0))
+
+set.seed(0)
+R = nrow(H)
+d = c(10, 10)
+type = rep("gaussian", length(d))
+latent_data = generate_latent_subspace(H, N = 200, d = d, gamma = 1)
+y = generate_y(latent_data$V, C = 2, continuous = FALSE)
+X0 = generate_X(latent_data$U_list, type)
+data = helper(X0, 0.5)
+MLFSobj = MLFS_mcmc(data$trainy, data$trainX, data$testy, data$testX, type, R, max_iter=3000, verbose=FALSE)
+df = data.frame(latent_data$V, y, missing = ifelse(1:200 %in% data$missing, "missing", "observed"), train = c(rep("train", 100), rep("test", 100)))
+
+df$pred1 = c(MLFSobj$V_mean[,1], MLFSobj$Vtest_mean[,1])
+df$pred2 = c(MLFSobj$V_mean[,2], MLFSobj$Vtest_mean[,2])
+```
+
+
+Lets try to get some insight, by exploring perhaps the simplest example, two dimensional latent space. 
+
+Suppose $(v_1, v_2) \sim N(0, I)$ for all data points. Then we construct two views, each with 10 features by
+
+- $w^r_1 v_1$ for feature $r$ of the first view
+- $\tilde{w}^r_1 v_1 + \tilde{w}^r_2 v_2$ for feature $r$ of the second view
+
+so that the two views "share" some information, but are not redundant. 
+
+We define two classes according to logistic regression in the latent space. Lets plot the data (color denotes class)
+
+```{r, echo=FALSE, fig.width=6, fig.height=5}
+
+ggplot(df, aes(X1, X2, col=factor(y))) + 
+  geom_point() + theme_bw() + 
+  xlab("latent 1") + ylab("latent 2")
+
+```
+
+Now, suppose $50\%$ of the individuals have the first view missing. 
+
+
+```{r, echo=FALSE, fig.width=8, fig.height=5}
+
+ggplot(df, aes(X1, X2, col=factor(y))) + 
+  geom_point() + theme_bw() + facet_grid(.~ missing) +
+  xlab("latent 1") + ylab("latent 2")
+
+```
+
+We divide them into equally sized train and test sets, run the multi-view method, and impute their values. Lets see the results, separately for 
+
+- test and train
+- individuals with one view missing, vs those observed
+
+```{r, fig.width=8, fig.height=6}
+
+ggplot(df, aes(X1, X2, col=factor(y))) + 
+  geom_point() + geom_segment(aes(xend = -pred2, yend = pred1), arrow = arrow(length = unit(0.03, "npc")))+
+  theme_bw()+ facet_grid(train ~ missing) +
+  xlab("latent 1") + ylab("latent 2")
+
+```
+
+Observations:
+
+- for observed data (both train and test), the inferred latent representation pretty much agrees with the ground truth
+- for missing test data, the deviation from the truth is quite large. 

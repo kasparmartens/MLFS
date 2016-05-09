@@ -73,6 +73,8 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
   W = MLFSinit$Ew
   alpha = MLFSinit$Ealpha
   gamma = MLFSinit$Egamma
+  V_mean = matrix(0, N, R)
+  Vtest_mean = matrix(0, Ntest, R)
   
   for(iter in 1:max_iter){
     temp = update_H_and_W(U, V, W, alpha, gamma, pi, d, M, R, iter)
@@ -115,6 +117,9 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
       mu_i = (ztest[k]*beta + mu_tmp) %*% sigma_V
       Vtest[k, ] = mu_i + randomtest[k, ]
     }
+    
+    V_mean = V_mean + 1/max_iter*V
+    Vtest_mean = Vtest_mean + 1/max_iter*Vtest
     
     ### impute missing values in U
     for(j in 1:M){
@@ -222,6 +227,7 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
               pred_test_trace = pred_test_trace[-c(1:burnin), ],  
               pred_test = pred_test, pred_acc_test = pred_acc_test, 
               beta_trace = beta_trace, z_trace = z_trace, W_trace = W_trace, 
+              V_mean = V_mean, Vtest_mean = Vtest_mean, 
               loglik_U_trace = loglik_U_trace, loglik_y_trace = loglik_y_trace))
 }
 
@@ -265,7 +271,7 @@ update_H_and_W = function(U, V, W, alpha, gamma, pi, d, M, R, iter){
   for(j in 1:M){
     for(r in 1:R){
       lambda = (alpha[j, r] + gamma[j] * sum(V[, r] * V[, r]))
-      Ures = U[[j]] - V[, -r] %*% W[[j]][-r, ]
+      Ures = U[[j]] - V[, -r, drop=FALSE] %*% W[[j]][-r, , drop=FALSE]
       mu = gamma[j] / lambda * t(Ures) %*% V[, r]
       z = logit(pi[j]) - 0.5*d[j]*log(lambda * alpha[j, r]) + 0.5*lambda*sum(mu**2)
       acceptance_prob = 1 / (1 + exp(-z))
