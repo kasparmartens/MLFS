@@ -3,7 +3,7 @@ library(dplyr)
 library(reshape2)
 library(doParallel)
 library(foreach)
-registerDoParallel(cores = 16)
+registerDoParallel(cores = 12)
 
 source("helpers.R")
 source("par_updates.R")
@@ -36,7 +36,7 @@ experiment0 = function(H, d, type, R, n_rep = 3, n_levels = 3, rotate=TRUE, cont
     latent_data = generate_latent_subspace(H, N = 200, d = d)
     y = generate_y(latent_data$V, C = 2, continuous = continuous)
     g_list = lapply(latent_data$U_list, function(x)c(-Inf, quantile(x, 1:(n_levels-1) / n_levels), Inf))
-
+    
     X0 = generate_X(latent_data$U_list, type, g_list)
     data = split_into_train_and_test(X0, y, prop=0.5)
     if(continuous){
@@ -65,7 +65,7 @@ three_experiments = function(experiment, H, d, R, n_views = 2, ...){
   type = rep(c("ordinal", "ordinal"), n_views/2)
   res3 = experiment(H, d, type, R, ...)
   df = data.frame(rbind(res1, res2, res3), 
-                   type = rep(c("gaussian + gaussian", "gaussian + ordinal", "ordinal + ordinal"), each=nrow(res1)))
+                  type = rep(c("gaussian + gaussian", "gaussian + ordinal", "ordinal + ordinal"), each=nrow(res1)))
   return(df)
 }
 
@@ -388,28 +388,90 @@ generate_missing_data = function(X, prop, n_views){
   return(X)
 }
 
-experiment_missing_data = function(prop_individuals = 0.1, H, d, type, R, n_views = 1, n_rep = 5, max_iter = 200, n_irrelevant_features = 0, continuous = FALSE){
+generate_missing_data2 = function(X, prop){
+  N = nrow(X[[1]])
+  M = length(X)
+  missing = matrix(FALSE, N, M)
+  if(sum(prop) == 0) return(list(X = X, missing = missing))
+  selected_individuals = sample(1:N, floor(prop[1]*N))
+  for(j in 1:length(prop)){
+    X[[j]][selected_individuals, ] = NA
+    missing[selected_individuals, j] = TRUE
+    if(j < length(prop)) selected_individuals = sample(selected_individuals, floor(prop[j+1]*N))
+  }
+  return(list(X = X, missing = missing))
+}
+
+experiment_missing_data = function(prop_individuals = 0.1, H, d, type, R, n_rep = 4, max_iter = 200, n_irrelevant_features = 0, continuous = FALSE){
   K = length(prop_individuals)
-  df = foreach(k = 1:n_rep, .combine="rbind") %dopar% {
+  df = foreach(k = 1:n_rep, .combine="rbind") %do% {
+    
     latent_data = generate_latent_subspace(H, N = 200, d = d, gamma = 1)
     y = generate_y(latent_data$V, C = 2, continuous = continuous)
     X0 = generate_X(latent_data$U_list, type)
     X1 = add_irrelevant_features(X0, type, n_irrelevant_features)
     data = split_into_train_and_test(X1, y, prop=0.5)
-    foreach(j = 1:length(n_views), .combine = "rbind") %dopar% {
-      foreach(i = 1:K, .combine = "rbind") %do% {
-        Xmis = generate_missing_data(data$trainX, prop_individuals[i], n_views[j])
-        Xtestmis = generate_missing_data(data$testX, prop_individuals[i], n_views[j])
-        if(continuous){
-          MLFSobj = MLFS_mcmc_regression(data$trainy, Xmis, data$testy, Xtestmis, type, R, max_iter=max_iter, verbose=FALSE)
-        } else{
-          MLFSobj = MLFS_mcmc(data$trainy, Xmis, data$testy, Xtestmis, type, R, max_iter=max_iter, verbose=FALSE)
-        }
-        pred_acc_train = MLFSobj$pred_acc_train
-        pred_acc = MLFSobj$pred_acc_test
-        data.frame(test = pred_acc, train = pred_acc_train, prop_missing = prop_individuals[i], n_views = n_views[j])
+    foreach(i = 1:K, .combine = "rbind") %dopar% {
+      obj1 = generate_missing_data2(data$trainX, prop_individuals[[i]])
+      obj2 = generate_missing_data2(data$testX, prop_individuals[[i]])
+      obs_train = !obj1$missing
+      obs_test = !obj2$missing
+      Xmis = obj1$X
+      Xtestmis = obj2$X
+      if(continuous){
+        MLFSobj = MLFS_mcmc_regression(data$trainy, Xmis, data$testy, Xtestmis, type, R, max_iter=max_iter, verbose=FALSE)
+        # pred_acc_cc1 = pred_complete_cases_lm(data$trainy, Xmis, data$testy, Xtestmis)
+        # pred_acc_cc2 = pred_complete_cases_MLFSreg(data$trainy, Xmis, data$testy, Xtestmis, type)
+        pred_acc_cc = pred_complete_cases_MLFSreg(data$trainy, Xmis, data$testy, Xtestmis, type, max_iter, obs_train, obs_test)
+      } else{
+        MLFSobj = MLFS_mcmc(data$trainy, Xmis, data$testy, Xtestmis, type, R, max_iter=max_iter, verbose=FALSE)
+        pred_acc_cc = pred_complete_cases_MLFS(data$trainy, Xmis, data$testy, Xtestmis, type, max_iter, obs_train, obs_test)
       }
+      pred_acc_train = MLFSobj$pred_acc_train
+      pred_acc = MLFSobj$pred_acc_test
+      data.frame(test = pred_acc, train = pred_acc_train, pred_acc_cc = pred_acc_cc, missing_pattern = i)
     }
   }
+  
   return(df)
+}
+
+pred_complete_cases_MLFS = function(trainy, trainX, testy, testX, type, max_iter = 1000, observed_train, observed_test){
+  M = length(trainX)
+  Ntest = length(testy)
+  ypred = rep(NA, Ntest)
+  unique_patterns = unique(observed_train)
+  for(j in 1:nrow(unique_patterns)){
+    selected_views = unique_patterns[j, ]
+    subset_train = apply(observed_train, 1, function(x)sum(x != unique_patterns[j, ])==0)
+    subset_test = apply(observed_test, 1, function(x)sum(x != unique_patterns[j, ])==0)
+    MLFSobj = MLFS_mcmc(trainy[subset_train], 
+                        lapply(trainX[selected_views], function(mat)mat[subset_train, ]), 
+                        testy[subset_test], 
+                        lapply(testX[selected_views], function(mat)mat[subset_test, ]), 
+                        type[selected_views], R, max_iter=max_iter, verbose=FALSE)
+    ypred[subset_test] = MLFSobj$pred_test
+  }
+  acc = mean(ypred == testy)
+  return(acc)
+}
+
+pred_complete_cases_MLFSreg = function(trainy, trainX, testy, testX, type, max_iter = 1000, observed_train, observed_test){
+  M = length(trainX)
+  Ntest = length(testy)
+  ypred = rep(NA, Ntest)
+  unique_patterns = unique(observed_train)
+  for(j in 1:nrow(unique_patterns)){
+    selected_views = unique_patterns[j, ]
+    subset_train = apply(observed_train, 1, function(x)sum(x != unique_patterns[j, ])==0)
+    subset_test = apply(observed_test, 1, function(x)sum(x != unique_patterns[j, ])==0)
+    MLFSobj = MLFS_mcmc_regression(trainy[subset_train], 
+                                   lapply(trainX[selected_views], function(mat)mat[subset_train, ]), 
+                                   testy[subset_test], 
+                                   lapply(testX[selected_views], function(mat)mat[subset_test, ]), 
+                                   type[selected_views], R, max_iter=max_iter, verbose=FALSE)
+    ypred[subset_test] = MLFSobj$pred_test
+  }
+  acc = cor(ypred, testy)**2
+  return(acc)
 }

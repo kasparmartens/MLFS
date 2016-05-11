@@ -50,7 +50,7 @@ MLFS_mcmc_regression = function(y, X_list, y_test, X_test, type, R, max_iter=10,
   pred_test = rep(0, Ntest)
   beta_trace = matrix(NA, max_iter, R)
   pred_trace = matrix(NA, max_iter, N)
-  pred_test_trace = matrix(NA, max_iter, N)
+  pred_test_trace = matrix(NA, max_iter, Ntest)
   gamma_trace = list()
   W_trace = list()
   loglik_U_trace = rep(NA, max_iter)
@@ -137,7 +137,7 @@ MLFS_mcmc_regression = function(y, X_list, y_test, X_test, type, R, max_iter=10,
     #       }
     #     }
     #     loglik_U_trace[iter] = loglik_U
-
+    
     ### regression
     sigma_beta_inv = rho*diag(R) + t(V)%*%V
     sigma_beta = solve(sigma_beta_inv)

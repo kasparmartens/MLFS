@@ -25,7 +25,7 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
   b0 = 0.01
   a_gamma = 0.01
   b_gamma = 0.01
-  rho = 0.01
+  rho = 100
   
   # alpha, gamma
   alpha = matrix(100, M, R)
@@ -56,11 +56,10 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
   beta = rep(0, R)
   beta_trace = matrix(NA, max_iter, R)
   pred_trace = matrix(NA, max_iter, N)
-  pred_test_trace = matrix(NA, max_iter, N)
+  pred_test_trace = matrix(NA, max_iter, Ntest)
   gamma_trace = list()
   W_trace = list()
-  loglik_U_trace = rep(NA, max_iter)
-  loglik_y_trace = rep(NA, max_iter)
+  loglik_trace = rep(NA, max_iter)
   z_trace = matrix(NA, max_iter, N)
   
   current_indexes = 1:N
@@ -134,35 +133,35 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
       }
     }
     
-#     loglik_U = 0
-#     for(j in 1:M){
-#       mu_U = V %*% W[[j]]
-#       sigma_U = 1 / gamma[j] * diag(d[j])
-#       for(i in 1:N){
-#         loglik_U = loglik_U + dmvnorm(U[[j]][i, ], mu_U[i, ], sigma_U, log=TRUE)
-#       }
-#     }
-#     loglik_U_trace[iter] = loglik_U
+    #     loglik_U = 0
+    #     for(j in 1:M){
+    #       mu_U = V %*% W[[j]]
+    #       sigma_U = 1 / gamma[j] * diag(d[j])
+    #       for(i in 1:N){
+    #         loglik_U = loglik_U + dmvnorm(U[[j]][i, ], mu_U[i, ], sigma_U, log=TRUE)
+    #       }
+    #     }
+    #     loglik_U_trace[iter] = loglik_U
     
-#     ### regression
-#     sigma_beta_inv = rho*diag(R) + t(V)%*%V
-#     sigma_beta = solve(sigma_beta_inv)
-#     beta_mu = sigma_beta %*% t(V) %*% y
-#     a_lambda = 1e-3 + 0.5*N
-#     residuals = y - mean(y)
-#     b_lambda = as.numeric(1e-3 + 0.5*(sum(residuals**2) - t(beta_mu)%*%sigma_beta_inv%*%beta_mu))
-#     lambda = rgamma(1, a_lambda, b_lambda)
-#     beta = as.numeric(t(beta_mu) + rmvt(1, b_lambda/a_lambda*sigma_beta, 2*a_lambda))
-#     pred = V %*% beta
-#     pred_trace[iter, ] = pred
+    #     ### regression
+    #     sigma_beta_inv = rho*diag(R) + t(V)%*%V
+    #     sigma_beta = solve(sigma_beta_inv)
+    #     beta_mu = sigma_beta %*% t(V) %*% y
+    #     a_lambda = 1e-3 + 0.5*N
+    #     residuals = y - mean(y)
+    #     b_lambda = as.numeric(1e-3 + 0.5*(sum(residuals**2) - t(beta_mu)%*%sigma_beta_inv%*%beta_mu))
+    #     lambda = rgamma(1, a_lambda, b_lambda)
+    #     beta = as.numeric(t(beta_mu) + rmvt(1, b_lambda/a_lambda*sigma_beta, 2*a_lambda))
+    #     pred = V %*% beta
+    #     pred_trace[iter, ] = pred
     
     ### For classification follow Albert & Chib 1993
     # sample beta
-    sigma_beta = solve(rho * diag(R) + t(V) %*% V)
+    sigma_beta = solve(1/rho * diag(R) + t(V) %*% V)
     mu_beta = sigma_beta %*% t(V) %*% z
     beta = as.numeric(rmvnorm(1, mu_beta, sigma_beta))
     beta_trace[iter, ] = beta
-      
+    
     # sample z
     z_mu = V %*% beta
     subset = (y == 2)
@@ -189,28 +188,45 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
     ytest = pred_test
     pred_test_trace[iter, ] = pred_test
     
-    loglik_y = 0
-    for(i in 1:N){
-      prob = pnorm(z_mu[i, ], 0, 1)
-      loglik_y = loglik_y + ifelse(y[i]==2, log(prob), log(1-prob))
-    }
-    loglik_y_trace[iter] = loglik_y
+    loglik_trace[iter] = compute_loglikelihood(U, V, W, gamma, y, z, beta, rho, M, N)
     
     if(label_switching){
-      proposal_indexes = switch_two_labels(current_indexes)$x
-      if(iter==1) l_current = compute_likelihood(U, V, W, gamma, M, N)
-      proposal_view = sample(1:M, 1)
-      U_proposal = reorder_rows_one_view(U_initial, proposal_indexes, proposal_view)
-      l_proposal = compute_likelihood(U_proposal, V, W, gamma, M, N)
-      accept_prob = min(1, exp(l_proposal - l_current))
-      if(runif(1) < accept_prob){
-        U = U_proposal
-        l_current = l_proposal
-        cat("Changed view", proposal_view, "indexes", which(proposal_indexes != 1:N), "\n")
+      for(kk in 1:10){
+        Vproposal = V
+        zproposal = z
+        proposal_indexes = switch_two_labels(current_indexes)
+        proposal_view = 1 # sample(1:M, 1)
+        U_proposal = reorder_rows_one_view(U_initial, proposal_indexes, proposal_view)
+        # update V[proposal_indexes, ]
+        for(i in proposal_indexes){
+          mu_tmp = update_V_mu_individual_i(i, U_proposal, W, gamma, M)
+          mu_i = (z[i]*beta + mu_tmp) %*% sigma_V
+          Vproposal[i, ] = mu_i + random[i, ]
+        }
+        # update z
+        z_mu = Vproposal %*% beta
+        subset = (y == 2)
+        if(sum(subset)>0) zproposal[subset] = rtruncnorm(sum(subset), a=0, mean=z_mu[subset], sd=1)
+        subset = (y == 1)
+        if(sum(subset)>0) zproposal[subset] = rtruncnorm(sum(subset), b=0, mean=z_mu[subset], sd=1)
+        # update beta
+        sigma_beta = solve(1/rho * diag(R) + t(Vproposal) %*% Vproposal)
+        mu_beta = sigma_beta %*% t(Vproposal) %*% zproposal
+        betaproposal = as.numeric(rmvnorm(1, mu_beta, sigma_beta))
+        
+        l_proposal = compute_loglikelihood(U_proposal, Vproposal, W, gamma, y, zproposal, betaproposal, rho, M, N)
+        accept_prob = min(1, exp(l_proposal - loglik_trace[iter]))
+        # cat("accept prob", accept_prob, "\n")
+        if(runif(1) < accept_prob){
+          cat("accept prob", accept_prob, "\n")
+          # U = U_proposal
+          # l_current = l_proposal
+          cat("Changed view", proposal_view, "indexes", which(proposal_indexes != 1:N), "\n")
+        }
       }
     }
-
-
+    
+    
     
     if((iter %% 100 == 0)){
       # plot_heatmap(W, main=sprintf("Iter %s", iter), cluster_rows = FALSE)
@@ -227,25 +243,23 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
               pred_test_trace = pred_test_trace[-c(1:burnin), ],  
               pred_test = pred_test, pred_acc_test = pred_acc_test, 
               beta_trace = beta_trace, z_trace = z_trace, W_trace = W_trace, 
-              V_mean = V_mean, Vtest_mean = Vtest_mean, 
-              loglik_U_trace = loglik_U_trace, loglik_y_trace = loglik_y_trace))
 }
 
 pred_out_of_sample_mcmc_regression = function(MLFSobj, X_test){
-#   Ntest = nrow(X_test[[1]])
-#   M = length(X_test)
-#   
-#   sigmainv_V = diag(R) + matrix_list_sum(lapply(1:M, function(j){
-#     gamma[j] * W[[j]] %*% t(W[[j]])
-#   }))
-#   sigma_V = solve(sigmainv_V + 1e-6)
-#   
-#   
-#   for(i in 1:N){
-#     mu_tmp = update_V_mu_individual_i(i, U, W, gamma, M)
-#     mu_i = (z[i]*beta + mu_tmp) %*% sigma_V
-#     V[i, ] = rmvnorm(1, mu_i, sigma_V)
-#   }
+  #   Ntest = nrow(X_test[[1]])
+  #   M = length(X_test)
+  #   
+  #   sigmainv_V = diag(R) + matrix_list_sum(lapply(1:M, function(j){
+  #     gamma[j] * W[[j]] %*% t(W[[j]])
+  #   }))
+  #   sigma_V = solve(sigmainv_V + 1e-6)
+  #   
+  #   
+  #   for(i in 1:N){
+  #     mu_tmp = update_V_mu_individual_i(i, U, W, gamma, M)
+  #     mu_i = (z[i]*beta + mu_tmp) %*% sigma_V
+  #     V[i, ] = rmvnorm(1, mu_i, sigma_V)
+  #   }
 }
 
 ### update H
@@ -284,6 +298,8 @@ update_H_and_W = function(U, V, W, alpha, gamma, pi, d, M, R, iter){
   }
   return(list(H = H, W = W))
 }
+
+
 
 
 

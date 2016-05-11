@@ -21,22 +21,22 @@ Also see, what happens, if there are irrelevant features present.
 Consider two cases: binary classification, and univariate regression. 
 
 ```{r}
-# source("experiment.R")
-# H = rbind(c(1, 1), 
-#           c(1, 0), 
-#           c(0, 1))
-# 
-# set.seed(0)
-# R = nrow(H)
-# d = c(10, 10)
-# type = rep("gaussian", length(d))
-# res0 = experiment_missing_data(prop_individuals = c(0, 0.25, 0.5, 0.75), H, d, type, R, n_views = c(1), max_iter = 1000, n_irrelevant_features = 0, continuous = FALSE)
-# res1 = experiment_missing_data(prop_individuals = c(0, 0.25, 0.5, 0.75), H, d, type, R, n_views = c(1), max_iter = 1000, n_irrelevant_features = 1, continuous = FALSE)
-# res2 = experiment_missing_data(prop_individuals = c(0, 0.25, 0.5, 0.75), H, d, type, R, n_views = c(1), max_iter = 1000, n_irrelevant_features = 10, continuous = FALSE)
+source("experiment.R")
+H = rbind(c(1, 1, 1, 1), 
+          c(1, 1, 1, 0), 
+          c(1, 0, 1, 1), 
+          c(0, 1, 0, 1), 
+          c(1, 0, 0, 1), 
+          c(0, 1, 1, 0))
 
-# res0 = experiment_missing_data(prop_individuals = c(0, 0.25, 0.5, 0.75), H, d, type, R, n_views = c(1, 2, 3), max_iter = 5000, n_irrelevant_features = 0, continuous = TRUE)
-# res1 = experiment_missing_data(prop_individuals = c(0, 0.25, 0.5, 0.75), H, d, type, R, n_views = c(1, 2, 3), max_iter = 5000, n_irrelevant_features = 1, continuous = TRUE)
-# res2 = experiment_missing_data(prop_individuals = c(0, 0.25, 0.5, 0.75), H, d, type, R, n_views = c(1, 2, 3), max_iter = 5000, n_irrelevant_features = 10, continuous = TRUE)
+set.seed(0)
+R = nrow(H)
+d = c(10, 10, 10, 10)
+type = rep("gaussian", 4)
+prop_individuals = list(c(0, 0, 0, 0), c(0.25, 0, 0, 0), c(0.25, 0.25, 0, 0), c(0.25, 0.25, 0.25, 0), c(0.5, 0, 0, 0), c(0.5, 0.5, 0, 0), c(0.5, 0.5, 0.5, 0), c(0.75, 0, 0, 0), c(0.75, 0.25, 0.25, 0), c(0.75, 0.5, 0.25, 0), c(0.75, 0.75, 0.75, 0))
+res = experiment_missing_data(prop_individuals, H, d, type, R, max_iter = 3000, n_irrelevant_features = 0, continuous = FALSE)
+
+res = experiment_missing_data(prop_individuals, H, d, type, R, max_iter = 3000, n_irrelevant_features = 0, continuous = TRUE)
 
 
 ```
