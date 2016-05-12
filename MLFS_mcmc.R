@@ -46,7 +46,7 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
   # initalise U
   U = list()
   for(j in 1:M){
-    if(type[j] == "gaussian") U[[j]] = ifelse(is.na(X_list[[j]]), 0, X_list[[j]])
+    if(type[j] == "gaussian") U[[j]] = X_imputed[[j]]
   }
   U_initial = U
   
@@ -62,7 +62,9 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
   loglik_trace = rep(NA, max_iter)
   z_trace = matrix(NA, max_iter, N)
   
-  current_indexes = 1:N
+  current_indexes = lapply(1:M, function(x)1:N)
+  label_state_matrices = lapply(1:M, function(x)matrix(0, N, N))
+  switch_indicator = rep(0, N)
   
   if(verbose) cat("Running Variational Bayes for 20 iterations to obtain starting values ... \n")
   MLFSinit = MLFS(y, X_imputed, type, R, max_iter=20, verbose=FALSE)
@@ -133,16 +135,6 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
       }
     }
     
-    #     loglik_U = 0
-    #     for(j in 1:M){
-    #       mu_U = V %*% W[[j]]
-    #       sigma_U = 1 / gamma[j] * diag(d[j])
-    #       for(i in 1:N){
-    #         loglik_U = loglik_U + dmvnorm(U[[j]][i, ], mu_U[i, ], sigma_U, log=TRUE)
-    #       }
-    #     }
-    #     loglik_U_trace[iter] = loglik_U
-    
     #     ### regression
     #     sigma_beta_inv = rho*diag(R) + t(V)%*%V
     #     sigma_beta = solve(sigma_beta_inv)
@@ -190,43 +182,52 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
     
     loglik_trace[iter] = compute_loglikelihood(U, V, W, gamma, y, z, beta, rho, M, N)
     
-    if(label_switching){
-      for(kk in 1:10){
-        Vproposal = V
-        zproposal = z
-        proposal_indexes = switch_two_labels(current_indexes)
-        proposal_view = 1 # sample(1:M, 1)
+    if((iter > 500) & label_switching){
+      for(kk in 1:100){
+        V_proposal = V
+        z_proposal = z
+        proposal_view = sample(1:M, 1)
+        proposal_indexes = current_indexes[[proposal_view]]
+        
+        two_indexes = sample((1:N)[switch_indicator %in% c(0, proposal_view)], 2)
+        proposal_indexes[two_indexes] = proposal_indexes[rev(two_indexes)]
+        
         U_proposal = reorder_rows_one_view(U_initial, proposal_indexes, proposal_view)
-        # update V[proposal_indexes, ]
-        for(i in proposal_indexes){
+        # update V for the two proposal indexes
+        for(i in two_indexes){
           mu_tmp = update_V_mu_individual_i(i, U_proposal, W, gamma, M)
           mu_i = (z[i]*beta + mu_tmp) %*% sigma_V
-          Vproposal[i, ] = mu_i + random[i, ]
+          V_proposal[i, ] = mu_i + random[i, ]
         }
         # update z
-        z_mu = Vproposal %*% beta
+        z_mu = V_proposal %*% beta
         subset = (y == 2)
-        if(sum(subset)>0) zproposal[subset] = rtruncnorm(sum(subset), a=0, mean=z_mu[subset], sd=1)
+        if(sum(subset)>0) z_proposal[subset] = rtruncnorm(sum(subset), a=0, mean=z_mu[subset], sd=1)
         subset = (y == 1)
-        if(sum(subset)>0) zproposal[subset] = rtruncnorm(sum(subset), b=0, mean=z_mu[subset], sd=1)
+        if(sum(subset)>0) z_proposal[subset] = rtruncnorm(sum(subset), b=0, mean=z_mu[subset], sd=1)
         # update beta
-        sigma_beta = solve(1/rho * diag(R) + t(Vproposal) %*% Vproposal)
-        mu_beta = sigma_beta %*% t(Vproposal) %*% zproposal
-        betaproposal = as.numeric(rmvnorm(1, mu_beta, sigma_beta))
+        sigma_beta = solve(1/rho * diag(R) + t(V_proposal) %*% V_proposal)
+        mu_beta = sigma_beta %*% t(V_proposal) %*% z_proposal
+        beta_proposal = as.numeric(rmvnorm(1, mu_beta, sigma_beta))
         
-        l_proposal = compute_loglikelihood(U_proposal, Vproposal, W, gamma, y, zproposal, betaproposal, rho, M, N)
+        l_proposal = compute_loglikelihood(U_proposal, V_proposal, W, gamma, y, z_proposal, beta_proposal, rho, M, N)
         accept_prob = min(1, exp(l_proposal - loglik_trace[iter]))
-        # cat("accept prob", accept_prob, "\n")
         if(runif(1) < accept_prob){
-          cat("accept prob", accept_prob, "\n")
-          # U = U_proposal
-          # l_current = l_proposal
-          cat("Changed view", proposal_view, "indexes", which(proposal_indexes != 1:N), "\n")
+          cat("\n")
+          switch_indicator[two_indexes] = proposal_view
+          U = U_proposal
+          current_indexes[[proposal_view]] = proposal_indexes
+          V = V_proposal
+          beta = beta_proposal
+          z = z_proposal
+          cat("Accept prob", accept_prob, "Changed view", proposal_view, "indexes", two_indexes, "\n")
         }
       }
+      # Update label state matrices
+      for(j in 1:M){
+        label_state_matrices[[j]] = label_state_matrices[[j]] + as.matrix(table(1:N, current_indexes[[j]]))
+      }
     }
-    
-    
     
     if((iter %% 100 == 0)){
       # plot_heatmap(W, main=sprintf("Iter %s", iter), cluster_rows = FALSE)
@@ -242,7 +243,8 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
   return(list(pred_train = pred_train, pred_acc_train = pred_acc_train, 
               pred_test_trace = pred_test_trace[-c(1:burnin), ],  
               pred_test = pred_test, pred_acc_test = pred_acc_test, 
-              beta_trace = beta_trace, z_trace = z_trace, W_trace = W_trace, 
+              beta_trace = beta_trace, z_trace = z_trace, W_trace = W_trace,
+              loglik_trace = loglik_trace, label_state_mat = label_state_matrices))
 }
 
 pred_out_of_sample_mcmc_regression = function(MLFSobj, X_test){

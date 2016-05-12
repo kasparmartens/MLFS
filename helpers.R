@@ -50,29 +50,30 @@ traceplot = function(mat){
   layout(1)
 }
 
-switch_two_labels = function(x){
-  ind = sample(1:length(x), 2)
-  
-  before = sum(x[ind] == ind)
-  after = sum(x[rev(ind)] == ind)
-  prob = ifelse(after == 2, 0.9, ifelse(after == 1, 0.5, 0.1))
-  x[ind] = x[rev(ind)]
-  return(list(x = x, prob = prob))
-}
-
 reorder_rows_one_view = function(U, reordering, which_view){
   U[[which_view]] = U[[which_view]][reordering, ]
   return(U)
 }
 
-compute_likelihood = function(U, V, W, gamma, M, N){
-  loglik_U = 0
+compute_loglikelihood = function(U, V, W, gamma, y, z, beta, rho, M, N){
+  loglik = 0
   for(j in 1:M){
     mu_U = V %*% W[[j]]
-    sigma_U = 1 / gamma[j] * diag(ncol(U[[j]]))
-    for(i in 1:N){
-      loglik_U = loglik_U + dmvnorm(U[[j]][i, ], mu_U[i, ], sigma_U, log=TRUE)
-    }
+    loglik = loglik + sum(dnorm(U[[j]], mu_U, 1/sqrt(gamma[j]), log=TRUE))
   }
-  return(loglik_U)
+  # p(beta)
+  loglik = loglik + sum(dnorm(beta, 0, sqrt(rho), log=TRUE))
+  # p(z | v, beta)
+  z_mu = V %*% beta
+  loglik = loglik + sum(dnorm(z, z_mu, 1, log=TRUE))
+  # p(y|z)
+  prob = pnorm(z_mu, 0, 1)
+  loglik = loglik + sum(ifelse(y==2, log(prob), log(1-prob)))
+  return(loglik)
+}
+
+update_state_mat = function(label_state_matrices, current_indexes){
+  for(j in 1:length(label_state_matrices)){
+    label_state_matrices[[j]] = current_indexes[[j]]
+  }
 }

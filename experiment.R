@@ -402,49 +402,52 @@ generate_missing_data2 = function(X, prop){
   return(list(X = X, missing = missing))
 }
 
-experiment_missing_data = function(prop_individuals = 0.1, H, d, type, R, n_rep = 4, max_iter = 200, n_irrelevant_features = 0, continuous = FALSE){
+experiment_missing_data = function(prop_individuals = 0.1, H, d, type, R, n_rep = 5, max_iter = 200, n_irrelevant_features = 0, continuous = FALSE, test_only = TRUE){
   K = length(prop_individuals)
-  df = foreach(k = 1:n_rep, .combine="rbind") %do% {
+  df = foreach(k = 1:n_rep, .combine="rbind") %dopar% {
     
     latent_data = generate_latent_subspace(H, N = 200, d = d, gamma = 1)
     y = generate_y(latent_data$V, C = 2, continuous = continuous)
     X0 = generate_X(latent_data$U_list, type)
     X1 = add_irrelevant_features(X0, type, n_irrelevant_features)
     data = split_into_train_and_test(X1, y, prop=0.5)
-    foreach(i = 1:K, .combine = "rbind") %dopar% {
+    foreach(i = 1:K, .combine = "rbind") %do% {
       obj1 = generate_missing_data2(data$trainX, prop_individuals[[i]])
       obj2 = generate_missing_data2(data$testX, prop_individuals[[i]])
       obs_train = !obj1$missing
       obs_test = !obj2$missing
-      Xmis = obj1$X
+      if(test_only){
+        Xmis = data$trainX
+        obs_train = matrix(TRUE, length(data$trainy), length(data$trainX))
+      }  else Xmis = obj1$X
       Xtestmis = obj2$X
       if(continuous){
         MLFSobj = MLFS_mcmc_regression(data$trainy, Xmis, data$testy, Xtestmis, type, R, max_iter=max_iter, verbose=FALSE)
-        # pred_acc_cc1 = pred_complete_cases_lm(data$trainy, Xmis, data$testy, Xtestmis)
-        # pred_acc_cc2 = pred_complete_cases_MLFSreg(data$trainy, Xmis, data$testy, Xtestmis, type)
-        pred_acc_cc = pred_complete_cases_MLFSreg(data$trainy, Xmis, data$testy, Xtestmis, type, max_iter, obs_train, obs_test)
+        pred_acc1 = pred_available_cases_MLFSreg(data$trainy, Xmis, data$testy, Xtestmis, type, max_iter, obs_train, obs_test)
+        pred_acc2 = pred_available_cases_lm(data$trainy, Xmis, data$testy, Xtestmis)
       } else{
         MLFSobj = MLFS_mcmc(data$trainy, Xmis, data$testy, Xtestmis, type, R, max_iter=max_iter, verbose=FALSE)
-        pred_acc_cc = pred_complete_cases_MLFS(data$trainy, Xmis, data$testy, Xtestmis, type, max_iter, obs_train, obs_test)
+        pred_acc1 = pred_available_cases_MLFS(data$trainy, Xmis, data$testy, Xtestmis, type, max_iter, obs_train, obs_test)
+        pred_acc2 = pred_available_cases_logreg(data$trainy, Xmis, data$testy, Xtestmis)
       }
       pred_acc_train = MLFSobj$pred_acc_train
       pred_acc = MLFSobj$pred_acc_test
-      data.frame(test = pred_acc, train = pred_acc_train, pred_acc_cc = pred_acc_cc, missing_pattern = i)
+      data.frame(test = pred_acc, train = pred_acc_train, pred_acc1 = pred_acc1, pred_acc2 = pred_acc2, missing_pattern = i)
     }
   }
   
   return(df)
 }
 
-pred_complete_cases_MLFS = function(trainy, trainX, testy, testX, type, max_iter = 1000, observed_train, observed_test){
+pred_available_cases_MLFS = function(trainy, trainX, testy, testX, type, max_iter = 1000, observed_train, observed_test){
   M = length(trainX)
   Ntest = length(testy)
   ypred = rep(NA, Ntest)
-  unique_patterns = unique(observed_train)
+  unique_patterns = unique(observed_test)
   for(j in 1:nrow(unique_patterns)){
     selected_views = unique_patterns[j, ]
-    subset_train = apply(observed_train, 1, function(x)sum(x != unique_patterns[j, ])==0)
-    subset_test = apply(observed_test, 1, function(x)sum(x != unique_patterns[j, ])==0)
+    subset_train = apply(observed_train, 1, function(x)sum(x[x != selected_views] != TRUE)==0)
+    subset_test = apply(observed_test, 1, function(x)sum(x != selected_views)==0)
     MLFSobj = MLFS_mcmc(trainy[subset_train], 
                         lapply(trainX[selected_views], function(mat)mat[subset_train, ]), 
                         testy[subset_test], 
@@ -456,22 +459,55 @@ pred_complete_cases_MLFS = function(trainy, trainX, testy, testX, type, max_iter
   return(acc)
 }
 
-pred_complete_cases_MLFSreg = function(trainy, trainX, testy, testX, type, max_iter = 1000, observed_train, observed_test){
+pred_available_cases_MLFSreg = function(trainy, trainX, testy, testX, type, max_iter = 1000, observed_train, observed_test){
   M = length(trainX)
   Ntest = length(testy)
   ypred = rep(NA, Ntest)
-  unique_patterns = unique(observed_train)
+  unique_patterns = unique(observed_test)
   for(j in 1:nrow(unique_patterns)){
     selected_views = unique_patterns[j, ]
-    subset_train = apply(observed_train, 1, function(x)sum(x != unique_patterns[j, ])==0)
-    subset_test = apply(observed_test, 1, function(x)sum(x != unique_patterns[j, ])==0)
+    subset_train = apply(observed_train, 1, function(x)sum(x[x != selected_views] != TRUE)==0)
+    subset_test = apply(observed_test, 1, function(x)sum(x != selected_views)==0)
     MLFSobj = MLFS_mcmc_regression(trainy[subset_train], 
-                                   lapply(trainX[selected_views], function(mat)mat[subset_train, ]), 
-                                   testy[subset_test], 
-                                   lapply(testX[selected_views], function(mat)mat[subset_test, ]), 
-                                   type[selected_views], R, max_iter=max_iter, verbose=FALSE)
+                        lapply(trainX[selected_views], function(mat)mat[subset_train, ]), 
+                        testy[subset_test], 
+                        lapply(testX[selected_views], function(mat)mat[subset_test, ]), 
+                        type[selected_views], R, max_iter=max_iter, verbose=FALSE)
     ypred[subset_test] = MLFSobj$pred_test
   }
+  acc = cor(ypred, testy)**2
+  return(acc)
+}
+
+
+pred_available_cases_logreg = function(trainy, trainX, testy, testX){
+  M = length(trainX)
+  pred = matrix(NA, length(testy), M)
+  for(j in 1:M){
+    X = trainX[[j]]
+    df = data.frame(y = trainy-1, X)
+    m = glm(y ~ ., data = df[complete.cases(df), ], family=binomial)
+    dfpred = data.frame(testX[[j]])
+    subset = complete.cases(dfpred)
+    pred[subset, j] = predict(m, dfpred[subset, ])
+  }
+  ypred = round(apply(pred, 1, mean, na.rm=T) > 0)+1
+  acc = mean(ypred == testy)
+  return(acc)
+}
+
+pred_available_cases_lm = function(trainy, trainX, testy, testX){
+  M = length(trainX)
+  pred = matrix(NA, length(testy), M)
+  for(j in 1:M){
+    X = trainX[[j]]
+    df = data.frame(y = trainy, X)
+    m = lm(y ~ ., data = df[complete.cases(df), ])
+    dfpred = data.frame(testX[[j]])
+    subset = complete.cases(dfpred)
+    pred[subset, j] = predict(m, dfpred[subset, ])
+  }
+  ypred = apply(pred, 1, mean, na.rm=T)
   acc = cor(ypred, testy)**2
   return(acc)
 }

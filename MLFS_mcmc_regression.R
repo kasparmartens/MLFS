@@ -25,6 +25,7 @@ MLFS_mcmc_regression = function(y, X_list, y_test, X_test, type, R, max_iter=10,
   # alpha, gamma
   alpha = matrix(100, M, R)
   gamma = rep(100, M)
+  lambda = 1
   
   # initialise pi, H, W
   pi = rbeta(M, 1, 1)
@@ -93,7 +94,7 @@ MLFS_mcmc_regression = function(y, X_list, y_test, X_test, type, R, max_iter=10,
     }
     
     ### sample V
-    sigmainv_V = diag(R) + beta %*% t(beta) + matrix_list_sum(lapply(1:M, function(j){
+    sigmainv_V = diag(R) + lambda*beta %*% t(beta) + matrix_list_sum(lapply(1:M, function(j){
       gamma[j] * W[[j]] %*% t(W[[j]])
     }))
     sigma_V = solve(sigmainv_V + 1e-6)
@@ -101,7 +102,7 @@ MLFS_mcmc_regression = function(y, X_list, y_test, X_test, type, R, max_iter=10,
     random = rmvnorm(N, rep(0, R), sigma_V)
     for(i in 1:N){
       mu_tmp = update_V_mu_individual_i(i, U, W, gamma, M)
-      mu_i = (y[i]*beta + mu_tmp) %*% sigma_V
+      mu_i = (lambda*y[i]*beta + mu_tmp) %*% sigma_V
       V[i, ] = mu_i + random[i, ]
     }
     
@@ -170,7 +171,7 @@ MLFS_mcmc_regression = function(y, X_list, y_test, X_test, type, R, max_iter=10,
     
     
     
-    if((iter %% 100 == 0)){
+    if((iter %% 1 == 0)){
       # plot_heatmap(W, main=sprintf("Iter %s", iter), cluster_rows = FALSE)
       if(verbose) cat(sprintf("Iter %d. Prediction accuracies: train %1.3f, test %1.3f \n", iter, cor(pred_train, y)**2, cor(pred_test, y_test)**2))
     }
