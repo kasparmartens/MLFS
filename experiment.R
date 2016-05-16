@@ -402,32 +402,29 @@ generate_missing_data2 = function(X, prop){
   return(list(X = X, missing = missing))
 }
 
-experiment_missing_data = function(prop_individuals = 0.1, H, d, type, R, n_rep = 5, max_iter = 200, n_irrelevant_features = 0, continuous = FALSE, test_only = TRUE){
-  K = length(prop_individuals)
+experiment_missing_data = function(prop_mis_train, prop_mis_test, H, d, type, R, n_rep = 5, max_iter = 200, n_irrelevant_features = 0, continuous = FALSE){
+  K = length(prop_mis_train)
   df = foreach(k = 1:n_rep, .combine="rbind") %dopar% {
     
-    latent_data = generate_latent_subspace(H, N = 200, d = d, gamma = 1)
+    latent_data = generate_latent_subspace(H, N = 200, d = d, gamma = 10)
     y = generate_y(latent_data$V, C = 2, continuous = continuous)
     X0 = generate_X(latent_data$U_list, type)
     X1 = add_irrelevant_features(X0, type, n_irrelevant_features)
     data = split_into_train_and_test(X1, y, prop=0.5)
     foreach(i = 1:K, .combine = "rbind") %do% {
-      obj1 = generate_missing_data2(data$trainX, prop_individuals[[i]])
-      obj2 = generate_missing_data2(data$testX, prop_individuals[[i]])
-      obs_train = !obj1$missing
-      obs_test = !obj2$missing
-      if(test_only){
-        Xmis = data$trainX
-        obs_train = matrix(TRUE, length(data$trainy), length(data$trainX))
-      }  else Xmis = obj1$X
+      obj1 = generate_missing_data2(data$trainX, prop_mis_train[[i]])
+      obj2 = generate_missing_data2(data$testX, prop_mis_test[[i]])
+      observed_train = !obj1$missing
+      observed_test = !obj2$missing
+      Xmis = obj1$X
       Xtestmis = obj2$X
       if(continuous){
         MLFSobj = MLFS_mcmc_regression(data$trainy, Xmis, data$testy, Xtestmis, type, R, max_iter=max_iter, verbose=FALSE)
-        pred_acc1 = pred_available_cases_MLFSreg(data$trainy, Xmis, data$testy, Xtestmis, type, max_iter, obs_train, obs_test)
+        pred_acc1 = pred_available_cases_MLFSreg(data$trainy, Xmis, data$testy, Xtestmis, type, max_iter, observed_train, observed_test)
         pred_acc2 = pred_available_cases_lm(data$trainy, Xmis, data$testy, Xtestmis)
       } else{
         MLFSobj = MLFS_mcmc(data$trainy, Xmis, data$testy, Xtestmis, type, R, max_iter=max_iter, verbose=FALSE)
-        pred_acc1 = pred_available_cases_MLFS(data$trainy, Xmis, data$testy, Xtestmis, type, max_iter, obs_train, obs_test)
+        pred_acc1 = pred_available_cases_MLFS(data$trainy, Xmis, data$testy, Xtestmis, type, max_iter, observed_train, observed_test)
         pred_acc2 = pred_available_cases_logreg(data$trainy, Xmis, data$testy, Xtestmis)
       }
       pred_acc_train = MLFSobj$pred_acc_train

@@ -2,7 +2,7 @@ library(mvtnorm)
 library(truncnorm)
 library(pheatmap)
 
-MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5, verbose = TRUE, burnin = 100, label_switching = FALSE){
+MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5, verbose = TRUE, burnin = 500, label_switching = FALSE){
   N = length(y)
   M = length(X_list)
   d = ifelse(type != "similarity", sapply(X_list, ncol), d_sim)
@@ -84,17 +84,18 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
     
     # update pi
     H_rowsums = rowSums(H)
-    pi = rbeta(M, 0.01 + H_rowsums, 0.01 + R - H_rowsums)
+    pi = rbeta(M, 1 + H_rowsums, 1 + R - H_rowsums)
     
     ### update alpha
     for(j in 1:M){
       temp0 = rgamma(d[j], a0, b0)
-      temp1 = rgamma(d[j], a0 + 0.5*d[j], b0 + 0.5*sum(W[[j]]**2))
+      temp1 = rgamma(d[j], a0 + 0.5*d[j], b0 + 0.5*rowSums(W[[j]]**2))
       alpha[j, ] = ifelse(H[j, ] == 1, temp1, temp0)
     }
     
     ### update gamma
     for(j in 1:M){
+      mis = missing_values[[j]]
       temp = norm(U[[j]] - V %*% W[[j]], "F")
       gamma[j] = rgamma(1, a_gamma + 0.5*d[j]*N, b_gamma + 0.5*temp**2)
     }
@@ -182,11 +183,11 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
     
     loglik_trace[iter] = compute_loglikelihood(U, V, W, gamma, y, z, beta, rho, M, N)
     
-    if((iter > 500) & label_switching){
+    if((iter > burnin) & label_switching){
       for(kk in 1:100){
         V_proposal = V
         z_proposal = z
-        proposal_view = sample(1:M, 1)
+        proposal_view = 1 #sample(1:M, 1)
         proposal_indexes = current_indexes[[proposal_view]]
         
         two_indexes = sample((1:N)[switch_indicator %in% c(0, proposal_view)], 2)
@@ -233,6 +234,7 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
       # plot_heatmap(W, main=sprintf("Iter %s", iter), cluster_rows = FALSE)
       if(verbose) cat(sprintf("Iter %d. Prediction accuracies: train %1.3f, test %1.3f \n", iter, mean(pred_train == y), mean(pred_test == y_test)))
       # cat("iter", iter, "pred acc train:", mean(pred_train == y), "pred acc test:", mean(pred_test == y_test), "\n")
+      # print(H)
     }
   }
   pred_train = round(apply(pred_trace[-c(1:burnin), ], 2, mean))
@@ -245,23 +247,6 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
               pred_test = pred_test, pred_acc_test = pred_acc_test, 
               beta_trace = beta_trace, z_trace = z_trace, W_trace = W_trace,
               loglik_trace = loglik_trace, label_state_mat = label_state_matrices))
-}
-
-pred_out_of_sample_mcmc_regression = function(MLFSobj, X_test){
-  #   Ntest = nrow(X_test[[1]])
-  #   M = length(X_test)
-  #   
-  #   sigmainv_V = diag(R) + matrix_list_sum(lapply(1:M, function(j){
-  #     gamma[j] * W[[j]] %*% t(W[[j]])
-  #   }))
-  #   sigma_V = solve(sigmainv_V + 1e-6)
-  #   
-  #   
-  #   for(i in 1:N){
-  #     mu_tmp = update_V_mu_individual_i(i, U, W, gamma, M)
-  #     mu_i = (z[i]*beta + mu_tmp) %*% sigma_V
-  #     V[i, ] = rmvnorm(1, mu_i, sigma_V)
-  #   }
 }
 
 ### update H
@@ -286,11 +271,12 @@ update_H_and_W = function(U, V, W, alpha, gamma, pi, d, M, R, iter){
   H = matrix(0, M, R)
   for(j in 1:M){
     for(r in 1:R){
-      lambda = (alpha[j, r] + gamma[j] * sum(V[, r] * V[, r]))
       Ures = U[[j]] - V[, -r, drop=FALSE] %*% W[[j]][-r, , drop=FALSE]
+      lambda = (alpha[j, r] + gamma[j] * sum(V[, r]**2))
       mu = gamma[j] / lambda * t(Ures) %*% V[, r]
       z = logit(pi[j]) - 0.5*d[j]*log(lambda * alpha[j, r]) + 0.5*lambda*sum(mu**2)
       acceptance_prob = 1 / (1 + exp(-z))
+      # if(iter %% 100 == 0) cat("lambda", lambda, "alpha", alpha[j, r], "gamma", gamma[j], "\n")
       # if(iter %% 10 == 0) cat("accept prob", acceptance_prob,"\n")
       u = runif(1)
       H[j, r] = ifelse(u < acceptance_prob, 1, 0)
