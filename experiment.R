@@ -508,3 +508,23 @@ pred_available_cases_lm = function(trainy, trainX, testy, testX){
   acc = cor(ypred, testy)**2
   return(acc)
 }
+
+
+mislabelling_experiment = function(n, data, type, R, within_class=FALSE){
+  if(within_class){
+    random_selection = sample(which(data$trainy == 1), n)
+  } else{
+    random_selection = sample(1:length(data$trainy), n)
+  }
+  changed_order = c(random_selection[-1], random_selection[1])
+  data$trainX[[1]][random_selection, ] = data$trainX[[1]][changed_order, ]
+  MLFSobj = MLFS_mcmc(data$trainy, data$trainX, data$testy, data$testX, type, R, max_iter=5000, verbose=TRUE, label_switching = TRUE)
+  label_state_mat = MLFSobj$label_state_mat[[1]]
+  
+  indexes = 1:100
+  indexes[random_selection] = changed_order
+  correct_mat = as.matrix(table(indexes, 1:100))
+  mse = mean((correct_mat - label_state_mat)**2)
+  diagmse = mean((diag(correct_mat) - diag(label_state_mat))**2)
+  return(list("mse" = mse, "diagmse" = mse, "label_state_mat" = label_state_mat))
+}

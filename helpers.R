@@ -62,12 +62,26 @@ compute_loglikelihood = function(U, V, W, gamma, y, z, beta, rho, M, N){
     loglik = loglik + sum(dnorm(U[[j]], mu_U, 1/sqrt(gamma[j]), log=TRUE))
   }
   # p(beta)
-  loglik = loglik + sum(dnorm(beta, 0, sqrt(rho), log=TRUE))
+  loglik = loglik + sum(dnorm(beta, 0, 1/sqrt(rho), log=TRUE))
   # p(z | v, beta)
   z_mu = V %*% beta
   loglik = loglik + sum(dnorm(z, z_mu, 1, log=TRUE))
   # p(y|z)
-  prob = pnorm(z_mu, 0, 1)
+  prob = pnorm(z, 0, 1)
+  loglik = loglik + sum(ifelse(y==2, log(prob), log(1-prob)))
+  return(loglik)
+}
+
+compute_loglikelihood_marginal = function(U, V, W, gamma, y, z, rho, M, N){
+  loglik = 0
+  for(j in 1:M){
+    mu_U = V %*% W[[j]]
+    loglik = loglik + sum(dnorm(U[[j]], mu_U, 1/sqrt(gamma[j]), log=TRUE))
+  }
+  # p(z | v) = int p(beta) p(z | v, beta) dbeta
+  loglik = loglik + dmvnorm(z, rep(0, N), diag(N) + 1/rho * V %*% t(V), log = TRUE)
+  # p(y|z)
+  prob = pnorm(z, 0, 1)
   loglik = loglik + sum(ifelse(y==2, log(prob), log(1-prob)))
   return(loglik)
 }
