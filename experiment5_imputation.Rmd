@@ -3,31 +3,41 @@ output: html_document
 ---
 
 ```{r global_options, include=FALSE}
-knitr::opts_chunk$set(fig.width=10, fig.height=8, echo=FALSE,message=FALSE ,warnings=FALSE)
+knitr::opts_chunk$set(fig.width=10, fig.height=5, echo=FALSE,message=FALSE ,warnings=FALSE)
 ```
+
+```{r}
+library(dplyr)
+library(reshape2)
+library(ggplot2)
+
+```
+
 
 ### Missing data
 
-Hide $\{0\%, 25\%, 50\%, 75\%\}$ of the data in $\{1, 2, 3\}$ of the views. That is, 
+Hide $\{25\%, 50\%, 75\%\}$ of the data in $\{1, 2, 3\}$ of the views. That is, 
 
-- based on the values in the latent space, generate data for 4 gaussian views, each with 10 features, and the outcome y
-- do for $\{1, 2, 3\}$ of the views
-    - pick a view
-    - choose randomly $\{0\%, 25\%, 50\%, 75\%\}$ of individuals and set their values in the current view to NA, both in training and test data
-- observe accuracy on test data
+- based on the values in the latent space, generate data for 4 gaussian views, each with 50 features, and the binary outcome y
+- choose randomly $\{25\%, 50\%, 75\%\}$ of individuals and set their values in all of the $\{1, 2, 3\}$ views to NA
 
-Also see, what happens, if there are irrelevant features present. 
+Compare **multi-view imputation** method with two baselines:
 
-Consider two cases: binary classification, and univariate regression. 
+- **multi-view available cases** - for each missingness pattern in test data  (e.g. for the first view missing (Mis, Obs, Obs, Obs)) we train the multi-view method on all training data that has (at least) these three views available
+- **logistic regression per view** - train an ordinary logistic regression model (without regularisation) on each view separately. To obtain predictions, we average the log odds on the logit scale from all available views. 
 
-```{r}
+### Equal amount of missingness in train and test data
+
+Scenario: $X \%$ missingness in both train and test data
+
+```{r, eval=FALSE}
 source("experiment.R")
-H = rbind(c(1, 1, 1, 1), 
-          c(0, 1, 1, 0), 
-          c(1, 0, 0, 1), 
-          c(0, 1, 0, 1), 
+H = rbind(c(1, 1, 0, 0), 
+          c(0, 0, 1, 1), 
+          c(1, 1, 0, 0), 
           c(1, 0, 1, 0), 
-          c(0, 1, 0, 0))
+          c(0, 0, 0, 1), 
+          c(0, 0, 1, 0))
 
 set.seed(0)
 R = nrow(H)
@@ -35,42 +45,199 @@ d = 5*c(10, 10, 10, 10)
 type = rep("gaussian", 4)
 
 # one view missing
-prop_individuals = list(c(0.1, 0, 0, 0), 
-                        c(0.25, 0, 0, 0), 
-                        c(0.5, 0, 0, 0), 
-                        c(0.75, 0, 0, 0))
-res1 = experiment_missing_data(prop_individuals, H, d, type, R, max_iter = 3000, n_irrelevant_features = 0, test_only = FALSE, continuous = FALSE)
+prop_mis_train = list(c(0.25, 0, 0, 0), 
+                      c(0.5, 0, 0, 0), 
+                      c(0.75, 0, 0, 0))
+prop_mis_test = list(c(0.25, 0, 0, 0), 
+                      c(0.5, 0, 0, 0), 
+                      c(0.75, 0, 0, 0))
+res1 = experiment_missing_data(prop_mis_train, prop_mis_test, H, d, type, R, max_iter = 3000, n_irrelevant_features = 0, continuous = FALSE, n_rep = 8)
 
 # two views missing
-prop_individuals = list(c(0.1, 0.1, 0, 0), 
-                        c(0.25, 0.25, 0, 0), 
-                        c(0.5, 0.5, 0, 0), 
-                        c(0.75, 0.75, 0, 0))
-res2 = experiment_missing_data(prop_individuals, H, d, type, R, max_iter = 3000, n_irrelevant_features = 0, test_only = FALSE, continuous = FALSE)
+prop_mis_train = list(c(0.25, 0.25, 0, 0), 
+                      c(0.5, 0.5, 0, 0), 
+                      c(0.75, 0.75, 0, 0))
+prop_mis_test = list(c(0.25, 0.25, 0, 0), 
+                      c(0.5, 0.5, 0, 0), 
+                      c(0.75, 0.75, 0, 0))
+res2 = experiment_missing_data(prop_mis_train, prop_mis_test, H, d, type, R, max_iter = 3000, n_irrelevant_features = 0, continuous = FALSE, n_rep = 8)
 
 # three views missing
-prop_individuals = list(c(0.1, 0.1, 0.1, 0), 
-                        c(0.25, 0.25, 0.25, 0), 
-                        c(0.5, 0.5, 0.5, 0), 
-                        c(0.75, 0.75, 0.75, 0))
-res3 = experiment_missing_data(prop_individuals, H, d, type, R, max_iter = 3000, n_irrelevant_features = 0, test_only = FALSE, continuous = FALSE)
+prop_mis_train = list(c(0.25, 0.25, 0.25, 0), 
+                      c(0.5, 0.5, 0.5, 0), 
+                      c(0.75, 0.75, 0.75, 0))
+prop_mis_test = list(c(0.25, 0.25, 0.25, 0), 
+                      c(0.5, 0.5, 0.5, 0), 
+                      c(0.75, 0.75, 0.75, 0))
+res3 = experiment_missing_data(prop_mis_train, prop_mis_test, H, d, type, R, max_iter = 3000, n_irrelevant_features = 0, continuous = FALSE, n_rep = 8)
 
+```
+
+
+```{r}
+load("temp_mcmc_imputation_testtrain.RData")
 res = rbind(mutate(res1, n_views = 1), 
             mutate(res2, n_views = 2), 
             mutate(res3, n_views = 3)) %>%
   select(-train) %>%
-  mutate(missing_pattern = factor(missing_pattern, labels = c(0.1, 0.25, 0.5, 0.75)))
+  mutate(missing_pattern = factor(missing_pattern, labels = c(0.25, 0.5, 0.75)))
 names(res)[1:3] = c("multi-view imputation", "multi-view available cases", "logistic regression per view")
-df.m = melt(res, id.vars = c("missing_pattern", "n_views"))
+df.m = melt(res, id.vars = c("missing_pattern", "n_views")) %>%
+  mutate(n_views = paste(n_views, "views"))
 
 ggplot(df.m) + 
   geom_boxplot(aes(missing_pattern, value, col=variable)) + 
-  theme_bw() + scale_color_brewer("Multi-view method", palette = "Set1") + 
+  theme_bw() + scale_color_brewer("Method", palette = "Set1") + 
   facet_wrap(~ n_views) + 
   ylim(0, 1) + 
   xlab("Proportion of individuals with NA") + 
-  ylab("Prediction accuracy (test data)") + 
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))  
-
+  ylab("Prediction accuracy (test data)") 
 
 ```
+
+Conclusion: Difficult to say whether imputation improves predictions. 
+
+### Missingness only in training data
+
+Scenario: $X \%$ missingness in training data only (test data is fully observed)
+
+```{r, eval=FALSE}
+source("experiment.R")
+H = rbind(c(1, 1, 0, 0), 
+          c(0, 0, 1, 1), 
+          c(1, 1, 0, 0), 
+          c(1, 0, 1, 0), 
+          c(0, 0, 0, 1), 
+          c(0, 0, 1, 0))
+
+set.seed(0)
+R = nrow(H)
+d = 5*c(10, 10, 10, 10)
+type = rep("gaussian", 4)
+
+# one view missing
+prop_mis_train = list(c(0.25, 0, 0, 0), 
+                      c(0.5, 0, 0, 0), 
+                      c(0.75, 0, 0, 0))
+prop_mis_test = list(c(0, 0, 0, 0),
+                     c(0, 0, 0, 0), 
+                     c(0, 0, 0, 0))
+res1 = experiment_missing_data(prop_mis_train, prop_mis_test, H, d, type, R, max_iter = 3000, n_irrelevant_features = 0, continuous = FALSE, n_rep = 10)
+
+# two views missing
+prop_mis_train = list(c(0.25, 0.25, 0, 0), 
+                      c(0.5, 0.5, 0, 0), 
+                      c(0.75, 0.75, 0, 0))
+prop_mis_test = list(c(0, 0, 0, 0),
+                     c(0, 0, 0, 0), 
+                     c(0, 0, 0, 0))
+res2 = experiment_missing_data(prop_mis_train, prop_mis_test, H, d, type, R, max_iter = 3000, n_irrelevant_features = 0, continuous = FALSE, n_rep = 10)
+
+# three views missing
+prop_mis_train = list(c(0.25, 0.25, 0.25, 0), 
+                      c(0.5, 0.5, 0.5, 0), 
+                      c(0.75, 0.75, 0.75, 0))
+prop_mis_test = list(c(0, 0, 0, 0),
+                     c(0, 0, 0, 0), 
+                     c(0, 0, 0, 0))
+res3 = experiment_missing_data(prop_mis_train, prop_mis_test, H, d, type, R, max_iter = 3000, n_irrelevant_features = 0, continuous = FALSE, n_rep = 10)
+
+```
+
+
+```{r}
+load("temp_mcmc_imputation_train.RData")
+res = rbind(mutate(res1, n_views = 1), 
+            mutate(res2, n_views = 2), 
+            mutate(res3, n_views = 3)) %>%
+  select(-train) %>%
+  mutate(missing_pattern = factor(missing_pattern, labels = c(0.25, 0.5, 0.75)))
+names(res)[1:3] = c("multi-view imputation", "multi-view available cases", "logistic regression per view")
+df.m = melt(res, id.vars = c("missing_pattern", "n_views")) %>%
+  mutate(n_views = paste(n_views, "views"))
+
+ggplot(df.m) + 
+  geom_boxplot(aes(missing_pattern, value, col=variable)) + 
+  theme_bw() + scale_color_brewer("Method", palette = "Set1") + 
+  facet_wrap(~ n_views) + 
+  ylim(0, 1) + 
+  xlab("Proportion of individuals with NA") + 
+  ylab("Prediction accuracy (test data)") 
+
+```
+
+
+Conclusion: In this scenario, indeed imputation seems to improve predictions. 
+
+
+### Missingness only in test data
+
+Scenario: $X \%$ missingness in test data only (training data is fully observed)
+
+```{r, eval=FALSE}
+source("experiment.R")
+H = rbind(c(1, 1, 0, 0), 
+          c(0, 0, 1, 1), 
+          c(1, 1, 0, 0), 
+          c(1, 0, 1, 0), 
+          c(0, 0, 0, 1), 
+          c(0, 0, 1, 0))
+
+set.seed(0)
+R = nrow(H)
+d = 5*c(10, 10, 10, 10)
+type = rep("gaussian", 4)
+
+# one view missing
+prop_mis_train = list(c(0, 0, 0, 0),
+                     c(0, 0, 0, 0), 
+                     c(0, 0, 0, 0))
+
+prop_mis_test = list(c(0.25, 0, 0, 0), 
+                      c(0.5, 0, 0, 0), 
+                      c(0.75, 0, 0, 0))
+res1 = experiment_missing_data(prop_mis_train, prop_mis_test, H, d, type, R, max_iter = 3000, n_irrelevant_features = 0, continuous = FALSE, n_rep = 8)
+
+# two views missing
+prop_mis_train = list(c(0, 0, 0, 0),
+                     c(0, 0, 0, 0), 
+                     c(0, 0, 0, 0))
+prop_mis_test = list(c(0.25, 0.25, 0, 0), 
+                      c(0.5, 0.5, 0, 0), 
+                      c(0.75, 0.75, 0, 0))
+res2 = experiment_missing_data(prop_mis_train, prop_mis_test, H, d, type, R, max_iter = 3000, n_irrelevant_features = 0, continuous = FALSE, n_rep = 8)
+
+# three views missing
+prop_mis_train = list(c(0, 0, 0, 0),
+                     c(0, 0, 0, 0), 
+                     c(0, 0, 0, 0))
+prop_mis_test = list(c(0.25, 0.25, 0.25, 0), 
+                      c(0.5, 0.5, 0.5, 0), 
+                      c(0.75, 0.75, 0.75, 0))
+res3 = experiment_missing_data(prop_mis_train, prop_mis_test, H, d, type, R, max_iter = 3000, n_irrelevant_features = 0, continuous = FALSE, n_rep = 8)
+
+```
+
+```{r}
+load("temp_mcmc_imputation_test.RData")
+res = rbind(mutate(res1, n_views = 1), 
+            mutate(res2, n_views = 2), 
+            mutate(res3, n_views = 3)) %>%
+  select(-train) %>%
+  mutate(missing_pattern = factor(missing_pattern, labels = c(0.25, 0.5, 0.75)))
+names(res)[1:3] = c("multi-view imputation", "multi-view available cases", "logistic regression per view")
+df.m = melt(res, id.vars = c("missing_pattern", "n_views")) %>%
+  mutate(n_views = paste(n_views, "views"))
+
+
+ggplot(df.m) + 
+  geom_boxplot(aes(missing_pattern, value, col=variable)) + 
+  theme_bw() + scale_color_brewer("Method", palette = "Set1") + 
+  facet_wrap(~ n_views) + 
+  ylim(0, 1) + 
+  xlab("Proportion of individuals with NA") + 
+  ylab("Prediction accuracy (test data)") 
+
+```
+
+Conclusion: Imputation does not seem to help. 
