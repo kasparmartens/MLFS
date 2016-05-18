@@ -30,9 +30,9 @@ To explore the behavior w.r.t. $N$, I generated data for $N \in \{25, 50, 100, 2
 
 ```{r, fig.width=4, fig.height=4}
 Sigma = diag(6)
-Sigma[1, 3] <- Sigma[3, 1] <- 0.5
-Sigma[1, 5] <- Sigma[5, 1] <- -0.5
-Sigma[2, 4] <- Sigma[4, 2] <- 0.25
+Sigma[1, 3] <- Sigma[3, 1] <- 0.7
+Sigma[1, 5] <- Sigma[5, 1] <- -0.7
+Sigma[2, 4] <- Sigma[4, 2] <- 0.5
 rownames(Sigma) <- colnames(Sigma) <- paste0("V", 1:6)
 ggcorr(data=NULL, cor_matrix = Sigma, low = "steelblue", mid = "white", high = "darkred") + ggtitle(sprintf("True correlation matrix"))
 ```
@@ -47,7 +47,7 @@ set.seed(1)
 H = rbind(c(1, 1, 0, 0), 
           c(0, 0, 1, 1), 
           c(1, 0, 1, 0), 
-          c(1, 1, 0, 0),
+          c(1, 0, 0, 1),
           c(0, 0, 0, 1), 
           c(0, 1, 0, 0))
 
