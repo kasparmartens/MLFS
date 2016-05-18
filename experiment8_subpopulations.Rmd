@@ -1,0 +1,129 @@
+---
+output: html_document
+---
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.width=9, fig.height=5, echo=FALSE,message=FALSE ,warnings=FALSE)
+```
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\N}{\mathcal{N}}
+\newcommand{\TN}{\mathcal{TN}}
+\newcommand{\boldU}{\mathbf{U}}
+\newcommand{\boldUm}{\mathbf{U}^{(m)}}
+\newcommand{\boldW}{\mathbf{W}}
+\newcommand{\boldWm}{\mathbf{W}^{(m)}}
+\newcommand{\boldV}{\mathbf{V}}
+\newcommand{\boldX}{\mathbf{X}}
+\newcommand{\boldQ}{\mathbf{Q}}
+\newcommand{\boldI}{\mathbf{I}}
+\newcommand{\boldH}{\mathbf{H}}
+\newcommand{\boldHm}{\mathbf{H}^{(m)}}
+\newcommand{\boldy}{\mathbf{y}}
+\newcommand{\boldz}{\mathbf{z}}
+\newcommand{\boldzero}{\mathbf{0}}
+\newcommand{\boldone}{\mathbf{1}}
+
+```{r}
+source("helpers.R")
+source("par_updates.R")
+source("MLFS_mcmc.R")
+source("MLFS.R")
+source("par_updates.R")
+source("rotation.R")
+source("generate_data.R")
+
+library(reshape2)
+library(ggplot2)
+
+source("experiment.R")
+
+H = rbind(c(1, 1, 0, 0), 
+          c(0, 0, 1, 1), 
+          c(1, 0, 1, 0), 
+          c(1, 0, 0, 1),
+          c(0, 0, 0, 1), 
+          c(1, 0, 0, 0))
+
+set.seed(1)
+R = nrow(H)
+d = c(10, 10, 10, 10)
+type = rep("gaussian", 4)
+
+
+```
+
+### Presence of subpopulations
+
+Replace $\boldV_i \sim \N(\boldzero, \boldI)$ with  $\pi_1 \N(\boldone, \boldI) + \pi_2 \N(-\boldone, \boldI)$. Consider cases
+
+- equal proportion of both subpopulations, $\pi_1 = 0.5$
+- $\pi_1 = 0.25$
+
+For visualisation of the 6 dimensional latent space, plot PC1 and PC2 and color according to the true class labels. 
+
+#### Two subpopulations, $\pi_1 = 0.5$
+
+```{r}
+latent_data = generate_latent_subpopulations2(H, N = 300, d = d, gamma = 10, prop=0.5)
+y = generate_y(latent_data$V, C = 2, continuous = FALSE)
+X0 = generate_X(latent_data$U_list, type)
+data = split_into_train_and_test(X0, y, prop=0.75)
+MLFSobj = MLFS_mcmc(data$trainy, data$trainX, data$testy, data$testX, type, R, max_iter=1000, verbose=FALSE)
+
+par(mfrow=c(1, 2))
+plot(prcomp(latent_data$V[data$trainind, ])$x[, 1:2], col=data$trainy, pch=16, main="true (training data)")
+plot(prcomp(MLFSobj$V_mean)$x[, 1:2], col=data$trainy, pch=16, main="multi-view output")
+
+cat("test accuracy:", MLFSobj$pred_acc_test, "\n")
+```
+
+#### Two subpopulations, $\pi_1 = 0.25$
+
+```{r}
+latent_data = generate_latent_subpopulations2(H, N = 300, d = d, gamma = 10, prop=0.25)
+y = generate_y(latent_data$V, C = 2, continuous = FALSE)
+X0 = generate_X(latent_data$U_list, type)
+data = split_into_train_and_test(X0, y, prop=0.75)
+MLFSobj = MLFS_mcmc(data$trainy, data$trainX, data$testy, data$testX, type, R, max_iter=1000, verbose=FALSE, label_switching = FALSE)
+
+par(mfrow=c(1, 2))
+plot(prcomp(latent_data$V[data$trainind, ])$x[, 1:2], col=data$trainy, pch=16, main="true (training data)")
+plot(prcomp(MLFSobj$V_mean)$x[, 1:2], col=data$trainy, pch=16, main="multi-view output")
+
+cat("test accuracy:", MLFSobj$pred_acc_test, "\n")
+```
+
+#### Three subpopulations
+
+```{r}
+latent_data = generate_latent_subpopulations3(H, N = 300, d = d, gamma = 10, prop1=0.3, prop2=0.3)
+y = generate_y(latent_data$V, C = 2, continuous = FALSE)
+X0 = generate_X(latent_data$U_list, type)
+data = split_into_train_and_test(X0, y, prop=0.75)
+MLFSobj = MLFS_mcmc(data$trainy, data$trainX, data$testy, data$testX, type, R, max_iter=1000, verbose=FALSE)
+
+par(mfrow=c(1, 2))
+plot(prcomp(latent_data$V[data$trainind, ])$x[, 1:2], col=data$trainy, pch=16, main="true (training data)")
+plot(prcomp(MLFSobj$V_mean)$x[, 1:2], col=data$trainy, pch=16, main="multi-view output")
+
+cat("test accuracy:", MLFSobj$pred_acc_test, "\n")
+```
+
+### Two subpopulations with different betas
+
+```{r}
+set.seed(1234)
+latent_data = generate_latent_subpopulations2_beta(H, N = 300, d = d, gamma = 10, prop=0.5)
+y = latent_data$y
+X0 = generate_X(latent_data$U_list, type)
+data = split_into_train_and_test(X0, y, prop=0.75)
+MLFSobj = MLFS_mcmc(data$trainy, data$trainX, data$testy, data$testX, type, R, max_iter=1000, verbose=FALSE)
+
+par(mfrow=c(1, 2))
+plot(prcomp(latent_data$V[data$trainind, ])$x[, 1:2], col=data$trainy, pch=16, main="true (training data)")
+plot(prcomp(MLFSobj$V_mean)$x[, 1:2], col=data$trainy, pch=16, main="multi-view output")
+
+cat("test accuracy:", MLFSobj$pred_acc_test, "\n")
+```
+
