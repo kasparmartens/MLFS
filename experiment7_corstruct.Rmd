@@ -1,0 +1,78 @@
+---
+output: html_document
+---
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.width=9, fig.height=9, echo=FALSE,message=FALSE ,warnings=FALSE)
+```
+
+```{r}
+source("helpers.R")
+source("par_updates.R")
+source("MLFS_mcmc.R")
+source("MLFS.R")
+source("par_updates.R")
+source("rotation.R")
+source("generate_data.R")
+
+library(reshape2)
+library(ggplot2)
+library(gridExtra)
+source("https://raw.githubusercontent.com/briatte/ggcorr/master/ggcorr.R")
+
+```
+
+### Exploring structure in the latent space
+
+What we would expect: The larger $N$ is, the more structure we will have in the latent space. 
+
+To explore the behavior w.r.t. $N$, I generated data for $N \in \{25, 50, 100, 250\}$ training data points, where there was some correlation between the true latent variables. Here is the correlation matrix:
+
+```{r, fig.width=4, fig.height=4}
+Sigma = diag(6)
+Sigma[1, 3] <- Sigma[3, 1] <- 0.5
+Sigma[1, 5] <- Sigma[5, 1] <- -0.5
+Sigma[2, 4] <- Sigma[4, 2] <- 0.25
+rownames(Sigma) <- colnames(Sigma) <- paste0("V", 1:6)
+ggcorr(data=NULL, cor_matrix = Sigma, low = "steelblue", mid = "white", high = "darkred") + ggtitle(sprintf("True correlation matrix"))
+```
+
+
+Now I picked out one sample (from the mcmc trace) of $\Sigma_V$ and converted this to a correlation matrix. 
+
+
+```{r, eval=FALSE}
+set.seed(1)
+
+H = rbind(c(1, 1, 0, 0), 
+          c(0, 0, 1, 1), 
+          c(1, 0, 1, 0), 
+          c(1, 1, 0, 0),
+          c(0, 0, 0, 1), 
+          c(0, 1, 0, 0))
+
+R = nrow(H)
+d = 5*c(10, 10, 10, 10)
+type = rep("gaussian", length(d))
+p_list = list()
+n_values = c(25, 50, 100, 250)
+for(i in 1:length(n_values)){
+  latent_data = generate_latent_subspace_corstruct(H, N = 2*n_values[i], Sigma, d = d, gamma = 10)
+  y = generate_y(latent_data$V, C = 2, continuous = FALSE)
+  X0 = generate_X(latent_data$U_list, type)
+  data = split_into_train_and_test(X0, y, prop=0.5)
+  MLFSobj = MLFS_mcmc(data$trainy, data$trainX, data$testy, data$testX, type, R, max_iter=2000, verbose=TRUE, label_switching = FALSE)
+  cormat = cov2cor(MLFSobj$sigma_V)
+  print(cormat)
+  rownames(cormat) <- colnames(cormat) <- paste0("V", 1:R)
+  p = ggcorr(data=NULL, cor_matrix = cormat, low = "steelblue", mid = "white", high = "darkred") + ggtitle(sprintf("Correlation structure in the latent space for N = %d", n_values[i]))
+  p_list[[i]] = p
+}
+save(p_list, file="temp_corstruct.RData")
+```
+
+```{r}
+load("temp_corstruct.RData")
+do.call("grid.arrange", p_list)
+```
+
