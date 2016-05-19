@@ -116,31 +116,37 @@ d = 5*c(10, 10, 10, 10)
 type = rep("gaussian", 4)
 
 # one view missing
-prop_mis_train = list(c(0.25, 0, 0, 0), 
+prop_mis_train = list(c(0.1, 0, 0, 0), 
+                      c(0.25, 0, 0, 0), 
                       c(0.5, 0, 0, 0), 
                       c(0.75, 0, 0, 0))
 prop_mis_test = list(c(0, 0, 0, 0),
+                     c(0, 0, 0, 0),
                      c(0, 0, 0, 0), 
                      c(0, 0, 0, 0))
-res1 = experiment_missing_data(prop_mis_train, prop_mis_test, H, d, type, R, max_iter = 3000, n_irrelevant_features = 0, continuous = FALSE, n_rep = 10)
+res1 = experiment_missing_data(prop_mis_train, prop_mis_test, H, d, type, R, max_iter = 3000, n_irrelevant_features = 0, continuous = FALSE, n_rep = 8)
 
 # two views missing
-prop_mis_train = list(c(0.25, 0.25, 0, 0), 
+prop_mis_train = list(c(0.1, 0.1, 0, 0), 
+                      c(0.25, 0.25, 0, 0), 
                       c(0.5, 0.5, 0, 0), 
                       c(0.75, 0.75, 0, 0))
 prop_mis_test = list(c(0, 0, 0, 0),
+                     c(0, 0, 0, 0),
                      c(0, 0, 0, 0), 
                      c(0, 0, 0, 0))
-res2 = experiment_missing_data(prop_mis_train, prop_mis_test, H, d, type, R, max_iter = 3000, n_irrelevant_features = 0, continuous = FALSE, n_rep = 10)
+res2 = experiment_missing_data(prop_mis_train, prop_mis_test, H, d, type, R, max_iter = 3000, n_irrelevant_features = 0, continuous = FALSE, n_rep = 8)
 
 # three views missing
-prop_mis_train = list(c(0.25, 0.25, 0.25, 0), 
+prop_mis_train = list(c(0.1, 0.1, 0.1, 0), 
+                      c(0.25, 0.25, 0.25, 0), 
                       c(0.5, 0.5, 0.5, 0), 
                       c(0.75, 0.75, 0.75, 0))
 prop_mis_test = list(c(0, 0, 0, 0),
+                     c(0, 0, 0, 0),
                      c(0, 0, 0, 0), 
                      c(0, 0, 0, 0))
-res3 = experiment_missing_data(prop_mis_train, prop_mis_test, H, d, type, R, max_iter = 3000, n_irrelevant_features = 0, continuous = FALSE, n_rep = 10)
+res3 = experiment_missing_data(prop_mis_train, prop_mis_test, H, d, type, R, max_iter = 3000, n_irrelevant_features = 0, continuous = FALSE, n_rep = 8)
 
 ```
 
@@ -241,3 +247,29 @@ ggplot(df.m) +
 ```
 
 Conclusion: Imputation does not seem to help. 
+
+### Imputation accuracy
+
+So far we explored prediction accuracy. Now we also evaluated multi-view imputation accuracy on training data, using mean absolute error. As a baseline, we used feature-wise median imputation. 
+
+```{r}
+load("temp_mcmc_imputation_acc.RData")
+res = rbind(mutate(res1, n_views = 1), 
+            mutate(res2, n_views = 2), 
+            mutate(res3, n_views = 3)) %>%
+  select(imputation_acc, imputation_baseline, missing_pattern, n_views) %>%
+  mutate(missing_pattern = factor(missing_pattern, labels = c(0.1, 0.25, 0.5, 0.75)))
+names(res)[1:2] = c("multi-view", "baseline (median)")
+df.m = melt(res, id.vars = c("missing_pattern", "n_views")) %>%
+  mutate(n_views = paste(n_views, "views"))
+
+
+ggplot(df.m) + 
+  geom_boxplot(aes(missing_pattern, value, col=variable)) + 
+  theme_bw() + scale_color_brewer("Imputation", palette = "Set1") + 
+  facet_wrap(~ n_views) + expand_limits(y = 0) + 
+  xlab("Proportion of individuals with NA") + 
+  ylab("Imputation error (MAE, train data)") 
+```
+
+Conclusion: In this scenario (when there was a relatively strong dependence between views 1 and 2), missingness only in one view could be handled relatively well (regardless of the amount of missingness in that view), but even when a small portion of 2 views were simultaneously missing, the imputation accuracy was worse than the baseline. 
