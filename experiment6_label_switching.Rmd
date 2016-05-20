@@ -165,12 +165,12 @@ R = nrow(H)
 d = c(10, 10, 10, 10)
 type = rep("gaussian", 4)
 
-latent_data = generate_latent_subspace(H, N = 200, d = d, gamma = 10)
-y = generate_y(latent_data$V, C = 2, continuous = FALSE)
-X0 = generate_X(latent_data$U_list, type)
-data = split_into_train_and_test(X0, y, prop=0.5)
-res = foreach(n = c(2, 5, 10, 20, 30, 40), .combine="c") %dopar% {
-  foreach(rep = 1:3) %dopar% {
+res = foreach(rep = 1:10, .combine="c") %dopar% {
+  latent_data = generate_latent_subspace(H, N = 200, d = d, gamma = 10)
+  y = generate_y(latent_data$V, C = 2, continuous = FALSE)
+  X0 = generate_X(latent_data$U_list, type)
+  data = split_into_train_and_test(X0, y, prop=0.5)
+  foreach(n = c(2, 5, 10, 15, 20, 25, 30, 40)) %do% {
     mislabelling_experiment(n, data, type, R, within_class=TRUE)
   }
 }
@@ -195,9 +195,8 @@ Two metrics:
 
 ```{r, fig.width=7}
 library(ggplot2)
-load("~/MLFS/temp_label_switching_random.RData")
-df = do.call("rbind", lapply(res, function(x)data.frame(diagmse = x$mse, mse = x$mse, n = x$n)))
-df$iter = 1:3
+load("temp_label_switching_random.RData")
+df = do.call("rbind", lapply(res, function(x)data.frame(diagmse = x$diagmse, mse = x$mse, n = x$n)))
 ggplot(df, aes(factor(n), diagmse)) + geom_boxplot() + theme_bw() + 
   xlab("Number of mismatches") + ylab("Mean squared error on the diagonal") + 
   expand_limits(y=0)
@@ -221,8 +220,7 @@ for(x in res[!duplicated(df$n)]){
 ```{r, fig.width=7}
 library(ggplot2)
 load("~/MLFS/temp_label_switching_withinclass.RData")
-df = do.call("rbind", lapply(res, function(x)data.frame(diagmse = x$mse, mse = x$mse, n = x$n)))
-df$iter = 1:3
+df = do.call("rbind", lapply(res, function(x)data.frame(diagmse = x$diagmse, mse = x$mse, n = x$n)))
 ggplot(df, aes(factor(n), diagmse)) + geom_boxplot() + theme_bw() + 
   xlab("Number of mismatches") + ylab("Mean squared error on the diagonal") + 
   expand_limits(y=0)
