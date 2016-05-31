@@ -38,6 +38,19 @@ impute_with_median = function(mat){
   out
 }
 
+impute_test_with_median = function(testX, trainX){
+  for(j in 1:length(testX)){
+    colmedians = apply(trainX[[j]], 2, median, na.rm=T)
+    missing_rows = !complete.cases(testX[[j]])
+    missing_entries = is.na(testX[[j]])
+    for(row in which(missing_rows)){
+      which_cols = missing_entries[row, ]
+      testX[[j]][row, ] = colmedians[which_cols]
+    }
+  }
+  return(testX)
+}
+
 traceplot = function(mat){
   if(class(mat) == "matrix"){
     par(mfrow = c(0.5*ncol(mat), 2))
@@ -63,6 +76,8 @@ compute_loglikelihood = function(U, V, W, gamma, y, z, beta, rho, M, N){
   }
   # p(beta)
   loglik = loglik + sum(dnorm(beta, 0, 1/sqrt(rho), log=TRUE))
+  # p(V)
+  loglik = loglik + sum(dnorm(V, 0, 1, log=TRUE))
   # p(z | v, beta)
   z_mu = V %*% beta
   loglik = loglik + sum(dnorm(z, z_mu, 1, log=TRUE))
