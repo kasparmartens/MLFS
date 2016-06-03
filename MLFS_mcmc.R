@@ -2,7 +2,9 @@ library(mvtnorm)
 library(truncnorm)
 library(pheatmap)
 
-MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5, verbose = TRUE, burnin = 500, label_switching = FALSE, marginal_sampler = FALSE){
+MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5, verbose = TRUE, 
+                     burnin = 500, label_switching = FALSE, marginal_sampler = FALSE, 
+                     impute = TRUE, X_full = NULL, X_full_test = NULL, proposal_view = 1){
   N = length(y)
   M = length(X_list)
   d = ifelse(type != "similarity", sapply(X_list, ncol), d_sim)
@@ -13,9 +15,18 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
   if(sum(type != "gaussian") > 0) stop("MCMC version has been implemented for Gaussian views only")
   missing_values = lapply(X_list, function(x)!complete.cases(x))
   missing_values_test = lapply(X_test, function(x)!complete.cases(x))
-  # imputation for variational inference
+  # imputation for starting values
   X_imputed = lapply(X_list, impute_with_median)
-  X_test_imputed = lapply(X_test, impute_with_median)
+  X_test_imputed = impute_test_with_median(X_test, X_imputed)
+
+  temp = 0
+  for(j in 1:M){
+    for(mis in which(missing_values[[j]])){
+      temp = temp + mean(abs(X_full[[j]][mis, ] - X_imputed[[j]][mis, ]))
+    }
+  }
+  imputation_baseline = temp / sum(unlist(missing_values))
+
   
   Ntest = nrow(X_test[[1]])
   Utest = X_test_imputed
@@ -60,21 +71,17 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
   pred_test_trace = matrix(NA, max_iter, Ntest)
   gamma_trace = list()
   W_trace = list()
+  H_trace = list()
   loglik_trace = rep(NA, max_iter)
   z_trace = matrix(NA, max_iter, N)
+  # imputation accuracy
+  imputation_acc = rep(0, max_iter)
+  imputation_acc_test = rep(0, max_iter)
   
   current_indexes = lapply(1:M, function(x)1:N)
   label_state_matrices = lapply(1:M, function(x)matrix(0, N, N))
   switch_indicator = rep(0, N)
   
-  if(verbose) cat("Running Variational Bayes for 20 iterations to obtain starting values ... \n")
-  MLFSinit = MLFS(y, X_imputed, type, R, max_iter=20, verbose=FALSE)
-  if(verbose) cat("\tFinished VB. Now starting Gibbs sampling\n")
-  
-  V = MLFSinit$Ev
-  W = MLFSinit$Ew
-  alpha = MLFSinit$Ealpha
-  gamma = MLFSinit$Egamma
   V_mean = matrix(0, N, R)
   Vtest_mean = matrix(0, Ntest, R)
   
@@ -121,21 +128,32 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
       Vtest[k, ] = mu_i + randomtest[k, ]
     }
     
-    V_mean = V_mean + 1/max_iter*V
-    Vtest_mean = Vtest_mean + 1/max_iter*Vtest
+    if(iter > burnin){
+      V_mean = V_mean + 1/(max_iter-burnin)*V
+      Vtest_mean = Vtest_mean + 1/(max_iter-burnin)*Vtest
+    }
     
     ### impute missing values in U
-    for(j in 1:M){
-      sigma_U = 1 / gamma[j] * diag(d[j])
-      for(mis in which(missing_values[[j]])){
-        mu_U = V[mis, ] %*% W[[j]]
-        U[[j]][mis, ] = rnorm(d[j], mu_U, 1/sqrt(gamma[j])) # rmvnorm(1, mu_U, sigma_U)
+    if(impute){
+      imp_acc = 0
+      imp_acc_test = 0
+      for(j in 1:M){
+        sigma_U = 1 / gamma[j] * diag(d[j])
+        for(mis in which(missing_values[[j]])){
+          mu_U = V[mis, ] %*% W[[j]]
+          U[[j]][mis, ] = rnorm(d[j], mu_U, 1/sqrt(gamma[j]))
+          imp_acc = imp_acc + mean(abs(X_full[[j]][mis, ] - U[[j]][mis, ]))
+        }
+        for(mis in which(missing_values_test[[j]])){
+          mu_U = Vtest[mis, ] %*% W[[j]]
+          Utest[[j]][mis, ] = rnorm(d[j], mu_U, 1/sqrt(gamma[j]))
+          imp_acc_test = imp_acc_test + mean(abs(X_full_test[[j]][mis, ] - Utest[[j]][mis, ]))
+        }
       }
-      for(mis in which(missing_values_test[[j]])){
-        mu_U = Vtest[mis, ] %*% W[[j]]
-        Utest[[j]][mis, ] = rnorm(d[j], mu_U, 1/sqrt(gamma[j])) # rmvnorm(1, mu_U, sigma_U)
-      }
+      imputation_acc[iter] = imp_acc / sum(unlist(missing_values))
+      imputation_acc_test[iter] = imp_acc_test / sum(unlist(missing_values_test))
     }
+
     
     #     ### regression
     #     sigma_beta_inv = rho*diag(R) + t(V)%*%V
@@ -215,7 +233,6 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
       for(kk in 1:100){
         V_proposal = V
         z_proposal = z
-        proposal_view = 1 #sample(1:M, 1)
         proposal_indexes = current_indexes[[proposal_view]]
         
         two_indexes = sample((1:N)[switch_indicator %in% c(0, proposal_view)], 2)
@@ -273,10 +290,10 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
     }
     
     if((iter %% 100 == 0)){
+      H_trace[[iter/100]] = H
+      W_trace[[iter/100]] = W
       # plot_heatmap(W, main=sprintf("Iter %s", iter), cluster_rows = FALSE)
       if(verbose) cat(sprintf("Iter %d. Prediction accuracies: train %1.3f, test %1.3f \n", iter, mean(pred_train == y), mean(pred_test == y_test)))
-      # cat("iter", iter, "pred acc train:", mean(pred_train == y), "pred acc test:", mean(pred_test == y_test), "\n")
-      # print(H)
     }
   }
   pred_train = round(apply(pred_trace[-c(1:burnin), ], 2, mean))
@@ -286,10 +303,14 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
   
   label_state_matrices = lapply(label_state_matrices, function(x)x / (max_iter - burnin))
   
+  
+  
   return(list(pred_train = pred_train, pred_acc_train = pred_acc_train, 
               pred_test_trace = pred_test_trace[-c(1:burnin), ],  
               pred_test = pred_test, pred_acc_test = pred_acc_test, 
-              beta_trace = beta_trace, z_trace = z_trace, W_trace = W_trace,
+              beta_trace = beta_trace, z_trace = z_trace, W_trace = W_trace, H_trace = H_trace, 
+              sigma_V = sigma_V, V_mean = V_mean, Vtest_mean = Vtest_mean, 
+              imputation_acc = mean(imputation_acc[-c(1:burnin)]), imputation_acc_test = mean(imputation_acc_test[-c(1:burnin)]), imputation_baseline = imputation_baseline, 
               loglik_trace = loglik_trace, label_state_mat = label_state_matrices))
 }
 

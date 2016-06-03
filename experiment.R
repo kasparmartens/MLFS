@@ -5,6 +5,8 @@ library(doParallel)
 library(foreach)
 registerDoParallel(cores = 12)
 
+library(randomForest)
+
 source("helpers.R")
 source("par_updates.R")
 source("rotation.R")
@@ -14,6 +16,7 @@ source("MLFS_regression.R")
 source("MLFS_mcmc.R")
 source("MLFS_mcmc_regression.R")
 source("generate_data.R")
+source("MLFS_imputation.R")
 
 # H = rbind(c(1, 1), 
 #           c(1, 1), 
@@ -377,69 +380,77 @@ experiment_label_switching = function(prop_individuals = 0.1, H, d, type, R, n_v
   return(df)
 }
 
-generate_missing_data = function(X, prop, n_views){
-  if(prop == 0) return(X)
+### missingness ----
+
+generate_missing_data = function(X, prop){
   N = nrow(X[[1]])
   M = length(X)
-  for(j in sample(1:M, n_views)){
-    selected_individuals = sample(1:N, floor(prop*N))
-    X[[j]][selected_individuals, ] = NA
+  if(sum(prop) == 0) return(list(X = X, missing = missing))
+  for(j in 1:length(prop)){
+    if(prop[j]>0){
+      selected_individuals = sample(1:N, floor(prop[j]*N))
+      X[[j]][selected_individuals, ] = NA
+    }
   }
   return(X)
 }
 
-generate_missing_data2 = function(X, prop){
-  N = nrow(X[[1]])
-  M = length(X)
-  missing = matrix(FALSE, N, M)
-  if(sum(prop) == 0) return(list(X = X, missing = missing))
-  selected_individuals = sample(1:N, floor(prop[1]*N))
-  for(j in 1:length(prop)){
-    X[[j]][selected_individuals, ] = NA
-    missing[selected_individuals, j] = TRUE
-    if(j < length(prop)) selected_individuals = sample(selected_individuals, floor(prop[j+1]*N))
-  }
-  return(list(X = X, missing = missing))
-}
-
-experiment_missing_data = function(prop_mis_train, prop_mis_test, H, d, type, R, n_rep = 5, max_iter = 200, n_irrelevant_features = 0, continuous = FALSE){
+experiment_missing_data = function(prop_mis_train, prop_mis_test, H, d, type, R, n_rep = 5, max_iter = 200){
   K = length(prop_mis_train)
   df = foreach(k = 1:n_rep, .combine="rbind") %dopar% {
     
     latent_data = generate_latent_subspace(H, N = 200, d = d, gamma = 10)
-    y = generate_y(latent_data$V, C = 2, continuous = continuous)
+    y = generate_y(latent_data$V, C = 2, continuous = FALSE)
     X0 = generate_X(latent_data$U_list, type)
-    X1 = add_irrelevant_features(X0, type, n_irrelevant_features)
-    data = split_into_train_and_test(X1, y, prop=0.5)
+    data = split_into_train_and_test(X0, y, prop=0.5)
     foreach(i = 1:K, .combine = "rbind") %do% {
-      obj1 = generate_missing_data2(data$trainX, prop_mis_train[[i]])
-      obj2 = generate_missing_data2(data$testX, prop_mis_test[[i]])
-      observed_train = !obj1$missing
-      observed_test = !obj2$missing
-      Xmis = obj1$X
-      Xtestmis = obj2$X
-      if(continuous){
-        MLFSobj = MLFS_mcmc_regression(data$trainy, Xmis, data$testy, Xtestmis, type, R, max_iter=max_iter, verbose=FALSE)
-        pred_acc1 = pred_available_cases_MLFSreg(data$trainy, Xmis, data$testy, Xtestmis, type, max_iter, observed_train, observed_test)
-        pred_acc2 = pred_available_cases_lm(data$trainy, Xmis, data$testy, Xtestmis)
-      } else{
-        MLFSobj = MLFS_mcmc(data$trainy, Xmis, data$testy, Xtestmis, type, R, max_iter=max_iter, verbose=FALSE)
-        pred_acc1 = pred_available_cases_MLFS(data$trainy, Xmis, data$testy, Xtestmis, type, max_iter, observed_train, observed_test)
-        pred_acc2 = pred_available_cases_logreg(data$trainy, Xmis, data$testy, Xtestmis)
-      }
-      pred_acc_train = MLFSobj$pred_acc_train
-      pred_acc = MLFSobj$pred_acc_test
-      data.frame(test = pred_acc, train = pred_acc_train, pred_acc1 = pred_acc1, pred_acc2 = pred_acc2, missing_pattern = i)
+      Xmis = generate_missing_data(data$trainX, prop_mis_train[[i]])
+      Xtestmis = generate_missing_data(data$testX, prop_mis_test[[i]])
+
+      MLFSobj = MLFS_mcmc(data$trainy, Xmis, data$testy, Xtestmis, type, R, max_iter=max_iter, verbose=FALSE, impute=TRUE, X_full = data$trainX, X_full_test = data$testX)
+      pred_acc1 = MLFSobj$pred_acc_test
+      pred_acc2 = pred_available_cases_MLFS(data$trainy, Xmis, data$testy, Xtestmis, type, max_iter)
+
+      X_imputed = MLFS_mcmc_impute(data$trainy, Xmis, type, R, n_imputations = 100, max_iter=max_iter, verbose=FALSE)$U_trace
+      pred_acc3 = MLFS_with_missing_views(data$trainy, X_imputed, data$testy, Xtestmis, type, R, max_iter=max_iter, verbose=FALSE)$pred_acc_test
+      
+      pred_acc_rf1 = rfhelper(data$trainy, Xmis, data$testy, Xtestmis, impute=FALSE)
+      pred_acc_rf2 = rfhelper(data$trainy, Xmis, data$testy, Xtestmis, impute=TRUE)
+    
+      data.frame(pred_acc1 = pred_acc1, pred_acc2 = pred_acc2, pred_acc3 = pred_acc3, 
+                 pred_acc_rf1 = pred_acc_rf1, pred_acc_rf2 = pred_acc_rf2, missing_pattern = i)
     }
   }
-  
   return(df)
 }
 
-pred_available_cases_MLFS = function(trainy, trainX, testy, testX, type, max_iter = 1000, observed_train, observed_test){
+rfhelper = function(trainy, trainX, testy, testX, impute = FALSE){
+  Ntest = length(testy)
+  ypred = rep(NA, Ntest)
+  observed_patterns = do.call("cbind", lapply(testX, function(x)complete.cases(x)))
+  unique_patterns = unique(observed_patterns)
+  for(j in 1:nrow(unique_patterns)){
+    selected_views = unique_patterns[j, ]
+    subset_test = apply(observed_patterns, 1, function(x)sum(x != selected_views)==0)
+    if(impute){
+      X_rfimputed = rfImpute(do.call("cbind", trainX[selected_views]), factor(trainy), ntree=1000)[,-1]
+      m = randomForest(X_rfimputed, factor(trainy), ntree=1000)
+    } else{
+      X_rf = do.call("cbind", trainX[selected_views])
+      m = randomForest(X_rf[complete.cases(X_rf), ], factor(trainy)[complete.cases(X_rf)], ntree=1000)
+    }
+    ypred[subset_test] = predict(m, newdata = do.call("cbind", testX[selected_views]))
+  }
+  pred_acc_test = mean(ypred == testy)
+  return(pred_acc_test)
+}
+
+pred_available_cases_MLFS = function(trainy, trainX, testy, testX, type, max_iter = 1000){
   M = length(trainX)
   Ntest = length(testy)
   ypred = rep(NA, Ntest)
+  observed_train = do.call("cbind", lapply(trainX, function(x)complete.cases(x)))
+  observed_test = do.call("cbind", lapply(testX, function(x)complete.cases(x)))
   unique_patterns = unique(observed_test)
   for(j in 1:nrow(unique_patterns)){
     selected_views = unique_patterns[j, ]
@@ -453,26 +464,6 @@ pred_available_cases_MLFS = function(trainy, trainX, testy, testX, type, max_ite
     ypred[subset_test] = MLFSobj$pred_test
   }
   acc = mean(ypred == testy)
-  return(acc)
-}
-
-pred_available_cases_MLFSreg = function(trainy, trainX, testy, testX, type, max_iter = 1000, observed_train, observed_test){
-  M = length(trainX)
-  Ntest = length(testy)
-  ypred = rep(NA, Ntest)
-  unique_patterns = unique(observed_test)
-  for(j in 1:nrow(unique_patterns)){
-    selected_views = unique_patterns[j, ]
-    subset_train = apply(observed_train, 1, function(x)sum(x[x != selected_views] != TRUE)==0)
-    subset_test = apply(observed_test, 1, function(x)sum(x != selected_views)==0)
-    MLFSobj = MLFS_mcmc_regression(trainy[subset_train], 
-                        lapply(trainX[selected_views], function(mat)mat[subset_train, ]), 
-                        testy[subset_test], 
-                        lapply(testX[selected_views], function(mat)mat[subset_test, ]), 
-                        type[selected_views], R, max_iter=max_iter, verbose=FALSE)
-    ypred[subset_test] = MLFSobj$pred_test
-  }
-  acc = cor(ypred, testy)**2
   return(acc)
 }
 
@@ -509,10 +500,11 @@ pred_available_cases_lm = function(trainy, trainX, testy, testX){
   return(acc)
 }
 
+### mislabelling ----
 
 mislabelling_experiment = function(n, data, type, R, within_class=FALSE){
   if(within_class){
-    random_selection = sample(which(data$trainy == 1), n)
+    random_selection = sample(which(data$trainy == 1), min(n, sum(data$trainy == 1)))
   } else{
     random_selection = sample(1:length(data$trainy), n)
   }
@@ -526,5 +518,49 @@ mislabelling_experiment = function(n, data, type, R, within_class=FALSE){
   correct_mat = as.matrix(table(indexes, 1:100))
   mse = mean((correct_mat - label_state_mat)**2)
   diagmse = mean((diag(correct_mat) - diag(label_state_mat))**2)
-  return(list("mse" = mse, "diagmse" = mse, "label_state_mat" = label_state_mat))
+  return(list("mse" = mse, "diagmse" = diagmse, "label_state_mat" = label_state_mat, "n" = n))
+}
+
+generate_latent_subpopulations2 = function(H, N = 100, d = c(5, 5, 5, 5), gamma=1000, prop = 0.5){
+  R = nrow(H)
+  
+  mean = c(rep(1.5, prop*N), rep(-1.5, (1-prop)*N))
+  V = matrix(rnorm(N*R, mean), N, R)
+  
+  W_list = lapply(1:length(d), function(j)rsparsematrix(R, d[j], H[, j]))
+  
+  U_list = lapply(W_list, function(W) V %*% W + rnorm(N*ncol(W), 0, 1/sqrt(gamma)))
+  
+  return(list(U_list = U_list, W_list = W_list, V = V, beta = beta))
+}
+
+generate_latent_subpopulations3 = function(H, N = 100, d = c(5, 5, 5, 5), gamma=1000, prop1, prop2){
+  R = nrow(H)
+  
+  mean = c(rep(3, prop1*N), sample(c(1, -1), (1-prop1-prop2)*N, replace=TRUE), rep(-3, prop2*N))
+  V = matrix(rnorm(N*R, mean), N, R)
+  
+  W_list = lapply(1:length(d), function(j)rsparsematrix(R, d[j], H[, j]))
+  
+  U_list = lapply(W_list, function(W) V %*% W + rnorm(N*ncol(W), 0, 1/sqrt(gamma)))
+  
+  return(list(U_list = U_list, W_list = W_list, V = V, beta = beta))
+}
+
+generate_latent_subpopulations2_beta = function(H, N = 100, d = c(5, 5, 5, 5), gamma=1000, prop = 0.5){
+  R = nrow(H)
+
+  mean = c(rep(1.5, prop*N), rep(-1.5, (1-prop)*N))
+  V = matrix(rnorm(N*R, mean), N, R)
+  W_list = lapply(1:length(d), function(j)rsparsematrix(R, d[j], H[, j]))
+  U_list = lapply(W_list, function(W) V %*% W + rnorm(N*ncol(W), 0, 1/sqrt(gamma)))
+  
+  beta1 = rnorm(R)
+  z1 = as.numeric(V %*% beta1)
+  beta2 = rnorm(R)
+  z2 = as.numeric(- V %*% beta1)
+  z = c(z1[1:(prop*N)], z2[(prop*N+1):N])
+  y = rbinom(length(z), 1, pnorm(z)) + 1
+  
+  return(list(U_list = U_list, W_list = W_list, V = V, beta = beta, y = y))
 }
