@@ -2,9 +2,11 @@ library(mvtnorm)
 library(truncnorm)
 library(pheatmap)
 
+Rcpp::sourceCpp('logdnorm.cpp')
+
 MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5, verbose = TRUE, 
                      burnin = 500, label_switching = FALSE, marginal_sampler = FALSE, 
-                     impute = TRUE, X_full = NULL, X_full_test = NULL, proposal_view = 1){
+                     impute = TRUE, X_full = NULL, X_full_test = NULL, proposal_view = 1, new_method=TRUE){
   N = length(y)
   M = length(X_list)
   d = ifelse(type != "similarity", sapply(X_list, ncol), d_sim)
@@ -80,7 +82,8 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
   
   current_indexes = lapply(1:M, function(x)1:N)
   label_state_matrices = lapply(1:M, function(x)matrix(0, N, N))
-  switch_indicator = rep(0, N)
+  # switch_indicator = rep(0, N)
+  switched_pairs = list()
   
   V_mean = matrix(0, N, R)
   Vtest_mean = matrix(0, Ntest, R)
@@ -115,18 +118,19 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
     sigma_V = solve(sigmainv_V + 1e-6)
     
     random = rmvnorm(N, rep(0, R), sigma_V)
-    for(i in 1:N){
-      mu_tmp = update_V_mu_individual_i(i, U, W, gamma, M)
-      mu_i = (z[i]*beta + mu_tmp) %*% sigma_V
-      V[i, ] = mu_i + random[i, ]
+    mu = z %*% t(beta)
+    for(j in 1:M){
+      mu = mu + gamma[j] * U[[j]] %*% t(W[[j]])
     }
+    V = mu %*% sigma_V + random
+    
     
     randomtest = rmvnorm(Ntest, rep(0, R), sigma_V)
-    for(k in 1:Ntest){
-      mu_tmp = update_V_mu_individual_i(k, Utest, W, gamma, M)
-      mu_i = (ztest[k]*beta + mu_tmp) %*% sigma_V
-      Vtest[k, ] = mu_i + randomtest[k, ]
+    mu = ztest %*% t(beta)
+    for(j in 1:M){
+      mu = mu + gamma[j] * Utest[[j]] %*% t(W[[j]])
     }
+    Vtest = mu %*% sigma_V + randomtest
     
     if(iter > burnin){
       V_mean = V_mean + 1/(max_iter-burnin)*V
@@ -230,59 +234,117 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
     # loglik_trace[iter] = compute_loglikelihood_marginal(U, V, W, gamma, y, z, rho, M, N)
     
     if((iter > burnin) & label_switching){
-      for(kk in 1:100){
-        V_proposal = V
-        z_proposal = z
-        proposal_indexes = current_indexes[[proposal_view]]
-        
-        two_indexes = sample((1:N)[switch_indicator %in% c(0, proposal_view)], 2)
-        proposal_indexes[two_indexes] = proposal_indexes[rev(two_indexes)]
-        
-        U_proposal = reorder_rows_one_view(U_initial, proposal_indexes, proposal_view)
-        
-        # update V for the two proposal indexes
-        for(i in two_indexes){
-          mu_tmp = update_V_mu_individual_i(i, U_proposal, W, gamma, M)
-          mu_i = (z[i]*beta + mu_tmp) %*% sigma_V
-          V_proposal[i, ] = mu_i + random[i, ]
-        }
-        
-        if(marginal_sampler){
-          sigma_beta = solve(rho * diag(R) + t(V_proposal) %*% V_proposal)
-          h[two_indexes] = diag(V_proposal[two_indexes, ] %*% sigma_beta %*% t(V_proposal[two_indexes, ]))
-          w = h / (1-h)
-          S = sigma_beta %*% t(V_proposal)
-          mu_beta = as.numeric(sigma_beta %*% t(V) %*% z)
-          obj = probit_rcpp_helper(y, mu_beta, V, w, sqrt(w+1), z, S, N, R)
-          z_proposal = obj$z
-          mu_beta = obj$mu_beta
-          beta_proposal = as.numeric(rmvnorm(1, mu_beta, sigma_beta))
-          l_proposal = compute_loglikelihood_marginal(U_proposal, V_proposal, W, gamma, y, z_proposal, rho, M, N)
-        } else{
-          # update z
-          z_mu = V_proposal %*% beta
-          subset = (y == 2)
-          if(sum(subset)>0) z_proposal[subset] = rtruncnorm(sum(subset), a=0, mean=z_mu[subset], sd=1)
-          subset = (y == 1)
-          if(sum(subset)>0) z_proposal[subset] = rtruncnorm(sum(subset), b=0, mean=z_mu[subset], sd=1)
-          # update beta
-          sigma_beta = solve(rho * diag(R) + t(V_proposal) %*% V_proposal)
-          mu_beta = sigma_beta %*% t(V_proposal) %*% z_proposal
-          beta_proposal = as.numeric(rmvnorm(1, mu_beta, sigma_beta))
-          l_proposal = compute_loglikelihood(U_proposal, V_proposal, W, gamma, y, z_proposal, beta_proposal, rho, M, N)
-        }
-        accept_prob = min(1, exp(l_proposal - loglik_trace[iter]))
-        if(runif(1) < accept_prob){
-          switch_indicator[two_indexes] = proposal_view
-          U = U_proposal
-          current_indexes[[proposal_view]] = proposal_indexes
-          V = V_proposal
-          beta = beta_proposal
-          z = z_proposal
-          loglik_trace[iter] = l_proposal
-          # cat("Accept prob", accept_prob, "Changed view", proposal_view, "indexes", two_indexes, "\n")
+      if(new_method){
+        for(kk in 1:100){
+          proposal_indexes = 1:N
+          temp = helper_switch_pairs(switched_pairs, N)
+          switched_pairs_proposal = temp$switched_pairs
+          proposal_indexes[unlist(switched_pairs_proposal)] = proposal_indexes[unlist(lapply(switched_pairs_proposal, rev))]
+          
+          U_proposal = reorder_rows_one_view(U_initial, proposal_indexes, proposal_view)
+          V_proposal = V
+          z_proposal = z
+          
+          for(i in temp$changed_indexes){
+            mu_tmp = update_V_mu_individual_i(i, U_proposal, W, gamma, M)
+            mu_i = (z[i]*beta + mu_tmp) %*% sigma_V
+            V_proposal[i, ] = mu_i + random[i, ]
+          }
+          
+          if(marginal_sampler){
+            sigma_beta = solve(rho * diag(R) + t(V_proposal) %*% V_proposal)
+            h = diag(V_proposal %*% sigma_beta %*% t(V_proposal))
+            w = h / (1-h)
+            S = sigma_beta %*% t(V_proposal)
+            mu_beta = as.numeric(sigma_beta %*% t(V) %*% z)
+            obj = probit_rcpp_helper(y, mu_beta, V, w, sqrt(w+1), z, S, N, R)
+            z_proposal = obj$z
+            mu_beta = obj$mu_beta
+            beta_proposal = as.numeric(rmvnorm(1, mu_beta, sigma_beta))
+            l_proposal = compute_loglikelihood_marginal(U_proposal, V_proposal, W, gamma, y, z_proposal, rho, M, N)
+          } else{
+            # update z
+            z_mu = V_proposal %*% beta
+            subset = (y == 2)
+            if(sum(subset)>0) z_proposal[subset] = rtruncnorm(sum(subset), a=0, mean=z_mu[subset], sd=1)
+            subset = (y == 1)
+            if(sum(subset)>0) z_proposal[subset] = rtruncnorm(sum(subset), b=0, mean=z_mu[subset], sd=1)
+            # update beta
+            sigma_beta = solve(rho * diag(R) + t(V_proposal) %*% V_proposal)
+            mu_beta = sigma_beta %*% t(V_proposal) %*% z_proposal
+            beta_proposal = as.numeric(rmvnorm(1, mu_beta, sigma_beta))
+            l_proposal = compute_loglikelihood(U_proposal, V_proposal, W, gamma, y, z_proposal, beta_proposal, rho, M, N)
+          }
+          accept_prob = min(1, exp(l_proposal - loglik_trace[iter]))
+          if(runif(1) < accept_prob){
+            U = U_proposal
+            current_indexes[[proposal_view]] = proposal_indexes
+            V = V_proposal
+            beta = beta_proposal
+            z = z_proposal
+            switched_pairs = switched_pairs_proposal
+            loglik_trace[iter] = l_proposal
+            # cat("Accept prob", accept_prob, "Changed view", proposal_view, "indexes", two_indexes, "\n")
+          }
         }
       }
+      else{ 
+        for(kk in 1:100){
+          V_proposal = V
+          z_proposal = z
+          proposal_indexes = current_indexes[[proposal_view]]
+          
+          two_indexes = sample((1:N)[switch_indicator %in% c(0, proposal_view)], 2)
+          proposal_indexes[two_indexes] = proposal_indexes[rev(two_indexes)]
+          
+          U_proposal = reorder_rows_one_view(U_initial, proposal_indexes, proposal_view)
+          
+          # update V for the two proposal indexes
+          for(i in two_indexes){
+            mu_tmp = update_V_mu_individual_i(i, U_proposal, W, gamma, M)
+            mu_i = (z[i]*beta + mu_tmp) %*% sigma_V
+            V_proposal[i, ] = mu_i + random[i, ]
+          }
+          
+          if(marginal_sampler){
+            sigma_beta = solve(rho * diag(R) + t(V_proposal) %*% V_proposal)
+            h[two_indexes] = diag(V_proposal[two_indexes, ] %*% sigma_beta %*% t(V_proposal[two_indexes, ]))
+            w = h / (1-h)
+            S = sigma_beta %*% t(V_proposal)
+            mu_beta = as.numeric(sigma_beta %*% t(V) %*% z)
+            obj = probit_rcpp_helper(y, mu_beta, V, w, sqrt(w+1), z, S, N, R)
+            z_proposal = obj$z
+            mu_beta = obj$mu_beta
+            beta_proposal = as.numeric(rmvnorm(1, mu_beta, sigma_beta))
+            l_proposal = compute_loglikelihood_marginal(U_proposal, V_proposal, W, gamma, y, z_proposal, rho, M, N)
+          } else{
+            # update z
+            z_mu = V_proposal %*% beta
+            subset = (y == 2)
+            if(sum(subset)>0) z_proposal[subset] = rtruncnorm(sum(subset), a=0, mean=z_mu[subset], sd=1)
+            subset = (y == 1)
+            if(sum(subset)>0) z_proposal[subset] = rtruncnorm(sum(subset), b=0, mean=z_mu[subset], sd=1)
+            # update beta
+            sigma_beta = solve(rho * diag(R) + t(V_proposal) %*% V_proposal)
+            mu_beta = sigma_beta %*% t(V_proposal) %*% z_proposal
+            beta_proposal = as.numeric(rmvnorm(1, mu_beta, sigma_beta))
+            l_proposal = compute_loglikelihood(U_proposal, V_proposal, W, gamma, y, z_proposal, beta_proposal, rho, M, N)
+          }
+          accept_prob = min(1, exp(l_proposal - loglik_trace[iter]))
+          if(runif(1) < accept_prob){
+            switch_indicator[two_indexes] = proposal_view
+            U = U_proposal
+            current_indexes[[proposal_view]] = proposal_indexes
+            V = V_proposal
+            beta = beta_proposal
+            z = z_proposal
+            loglik_trace[iter] = l_proposal
+            # cat("Accept prob", accept_prob, "Changed view", proposal_view, "indexes", two_indexes, "\n")
+          }
+        }
+        
+      }
+      
       # Update label state matrices
       for(j in 1:M){
         label_state_matrices[[j]] = label_state_matrices[[j]] + as.matrix(table(1:N, current_indexes[[j]]))
@@ -314,46 +376,31 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
               loglik_trace = loglik_trace, label_state_mat = label_state_matrices))
 }
 
-### update H
-# update_H_and_W = function(U, V, W, alpha, gamma, pi, d, M, R){
-#   H = matrix(0, M, R)
-#   for(j in 1:M){
-#     s2 = 1/alpha[j, ] + gamma[j] * diag(t(V) %*% V) # sapply(1:ncol(V), function(r)t(V[, r]) %*% V[, r])
-#     Ures = U[[j]] - V %*% W[[j]]
-#     mu = gamma[j] * t(Ures) %*% V %*% diag(1 / s2)
-#     z = logit(pi[j]) + 0.5*d[j]*log(s2 * alpha[j, ]) + 0.5*diag(t(mu) %*% mu) / s2
-#     acceptance_probs = 1 / (1 + exp(-z))
-#     print(acceptance_probs)
-#     u = runif(R)
-#     H[j, ] = ifelse(u < acceptance_probs, 1, 0)
-#     W_fill = mu + rnorm(R*d[j])*sqrt(rep(s2, each=d[j]))
-#     W[[j]] = matrix(W_fill * rep(H[j, ], d[j]), R, d[j])
-#   }
-#   return(list(H = H, W = W))W[[j]][r, ]
-# }
 
 update_H_and_W = function(U, V, W, alpha, gamma, pi, d, M, R, iter){
   H = matrix(0, M, R)
+  Vsq_colsums = colSums(V**2)
   for(j in 1:M){
     for(r in 1:R){
       Ures = U[[j]] - V[, -r, drop=FALSE] %*% W[[j]][-r, , drop=FALSE]
-      lambda = (alpha[j, r] + gamma[j] * sum(V[, r]**2))
+      lambda = alpha[j, r] + gamma[j] * Vsq_colsums[r]
       mu = gamma[j] / lambda * t(Ures) %*% V[, r]
-      z = logit(pi[j]) - 0.5*d[j]*log(lambda * alpha[j, r]) + 0.5*lambda*sum(mu**2)
+      z = logit(pi[j]) - 0.5*d[j]*(log(lambda) + log(alpha[j, r])) + 0.5*lambda*sum(mu**2)
       acceptance_prob = 1 / (1 + exp(-z))
       # if(iter %% 100 == 0) cat("lambda", lambda, "alpha", alpha[j, r], "gamma", gamma[j], "\n")
       # if(iter %% 10 == 0) cat("accept prob", acceptance_prob,"\n")
       u = runif(1)
-      H[j, r] = ifelse(u < acceptance_prob, 1, 0)
-      W_fill = mu + rnorm(d[j])*sqrt(1/lambda)
-      W[[j]][r, ] = W_fill * H[j, r]
+      if(u < acceptance_prob){
+        H[j, r] = 1
+        W[[j]][r, ] = mu + rnorm(d[j])*sqrt(1/lambda)
+      } else{
+        H[j, r] = 0
+        W[[j]][r, ] = 0
+      }
     }
   }
   return(list(H = H, W = W))
 }
-
-
-
 
 
 

@@ -72,7 +72,8 @@ compute_loglikelihood = function(U, V, W, gamma, y, z, beta, rho, M, N){
   loglik = 0
   for(j in 1:M){
     mu_U = V %*% W[[j]]
-    loglik = loglik + sum(dnorm(U[[j]], mu_U, 1/sqrt(gamma[j]), log=TRUE))
+    # loglik = loglik + sum(dnorm(U[[j]], mu_U, 1/sqrt(gamma[j]), log=TRUE))
+    loglik = loglik + logdnormCpp(U[[j]], V %*% W[[j]], 1/gamma[j]) 
   }
   # p(beta)
   loglik = loglik + sum(dnorm(beta, 0, 1/sqrt(rho), log=TRUE))
@@ -90,8 +91,8 @@ compute_loglikelihood = function(U, V, W, gamma, y, z, beta, rho, M, N){
 compute_loglikelihood_marginal = function(U, V, W, gamma, y, z, rho, M, N){
   loglik = 0
   for(j in 1:M){
-    mu_U = V %*% W[[j]]
-    loglik = loglik + sum(dnorm(U[[j]], mu_U, 1/sqrt(gamma[j]), log=TRUE))
+    # loglik = loglik + sum(dnorm(U[[j]], mu_U, 1/sqrt(gamma[j]), log=TRUE))
+    loglik = loglik + logdnormCpp(U[[j]], V %*% W[[j]], 1/gamma[j]) 
   }
   # p(z | v) = int p(beta) p(z | v, beta) dbeta
   loglik = loglik + dmvnorm(z, rep(0, N), diag(N) + 1/rho * V %*% t(V), log = TRUE)
@@ -105,4 +106,30 @@ update_state_mat = function(label_state_matrices, current_indexes){
   for(j in 1:length(label_state_matrices)){
     label_state_matrices[[j]] = current_indexes[[j]]
   }
+}
+
+helper_switch_pairs = function(switched_pairs, N){
+  prev_k = length(switched_pairs)
+  if(prev_k > 0) x = c(prev_k-1, prev_k, prev_k+1) else x = c(0, 1)
+  proposal_k = sample(x, 1, prob=dgeom(x, prob=0.5))
+  if(proposal_k == 0) return(list(switched_pairs = list(), changed_indexes = c()))
+  if(proposal_k < prev_k){
+    # switch two indexes back
+    index = sample(seq_along(switched_pairs), 1)
+    return(list(switched_pairs = switched_pairs[-index], changed_indexes = c()))
+  } else if ((proposal_k == prev_k) & (prev_k > 1)){
+    # pick two pairs and switch them around
+    two_indexes = sample(seq_along(switched_pairs), 2)
+    first = switched_pairs[[two_indexes[1]]]
+    second = switched_pairs[[two_indexes[2]]]
+    switched_pairs[[two_indexes[1]]] = c(first[1], second[1])
+    switched_pairs[[two_indexes[2]]] = c(first[2], second[2])
+    changed_indexes = c(first, second)
+  } else{
+    # introduce a new reordering
+    new_pair = sample(setdiff(1:N, unlist(switched_pairs)), 2)
+    switched_pairs[[length(switched_pairs)+1]] = new_pair
+    changed_indexes = new_pair
+  }
+  return(list(switched_pairs = switched_pairs, changed_indexes = changed_indexes))
 }
