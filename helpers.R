@@ -68,12 +68,17 @@ reorder_rows_one_view = function(U, reordering, which_view){
   return(U)
 }
 
+log_dnorm_mat = function(X, mu, sigma2){
+  res = -0.5*sum((X - mu)**2)/sigma2 - 0.5*nrow(X)*ncol(X)*log(2*pi*sigma2)
+  return(res)
+}
+
 compute_loglikelihood = function(U, V, W, gamma, y, z, beta, rho, M, N){
   loglik = 0
   for(j in 1:M){
     mu_U = V %*% W[[j]]
     # loglik = loglik + sum(dnorm(U[[j]], mu_U, 1/sqrt(gamma[j]), log=TRUE))
-    loglik = loglik + logdnormCpp(U[[j]], V %*% W[[j]], 1/gamma[j]) 
+    loglik = loglik + log_dnorm_mat(U[[j]], V %*% W[[j]], 1/gamma[j]) 
   }
   # p(beta)
   loglik = loglik + sum(dnorm(beta, 0, 1/sqrt(rho), log=TRUE))
@@ -110,9 +115,15 @@ update_state_mat = function(label_state_matrices, current_indexes){
 
 helper_switch_pairs = function(switched_pairs, N){
   prev_k = length(switched_pairs)
-  if(prev_k > 0) x = c(prev_k-1, prev_k, prev_k+1) else x = c(0, 1)
+  if(prev_k == 0){
+    x = c(0, 1)
+  } else if(prev_k == floor(N/2)){
+    x = c(prev_k-1, prev_k)
+  }else{
+    x = c(prev_k-1, prev_k, prev_k+1) 
+  }
   proposal_k = sample(x, 1, prob=dgeom(x, prob=0.5))
-  if(proposal_k == 0) return(list(switched_pairs = list(), changed_indexes = c()))
+  if(proposal_k == 0) return(list(switched_pairs = list(), changed_indexes = unlist(switched_pairs)))
   if(proposal_k < prev_k){
     # switch two indexes back
     index = sample(seq_along(switched_pairs), 1)
