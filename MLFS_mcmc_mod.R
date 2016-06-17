@@ -12,7 +12,7 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
   #if(sum(!(y %in% 1:max(y))) > 0) stop("y must have labels 1, 2, ..., C")
   if(sum(sapply(X_list, class) != "matrix") > 0) stop("X_list must contain matrices only!")
   
-  if(sum(type != "gaussian") > 0) stop("MCMC version has been implemented for Gaussian views only")
+  # if(sum(type != "gaussian") > 0) stop("MCMC version has been implemented for Gaussian views only")
   missing_values = lapply(X_list, function(x)!complete.cases(x))
   missing_values_test = lapply(X_test, function(x)!complete.cases(x))
   # imputation for starting values
@@ -56,8 +56,14 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
   
   # initalise U
   U = list()
+  n_levels = list()
   for(j in 1:M){
-    if(type[j] == "gaussian") U[[j]] = X_imputed[[j]]
+    if(type[j] == "gaussian") U[[j]] = X_list[[j]]
+    if(type[j] == "ordinal"){
+      U[[j]] = scale(X_list[[j]], center=TRUE, scale=FALSE)
+      g_list[[j]] = as.numeric(quantile(U[[j]], c(0.33, 0.66)))
+      n_levels[[j]] = max(X_list[[j]])+1
+    }
   }
   U_initial = U
   
@@ -133,6 +139,30 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
     if(iter > burnin){
       V_mean = V_mean + 1/(max_iter-burnin)*V
       Vtest_mean = Vtest_mean + 1/(max_iter-burnin)*Vtest
+    }
+    
+    # draw new g
+    for(j in which(type == "ordinal")){
+      g_list[[j]][1] = runif(1, max(U[[j]][X_list[[j]] == 0]), min(min(U[[j]][X_list[[j]] == 1]), g_list[[j]][2]))
+      g_list[[j]][2] = runif(1, max(max(U[[j]][X_list[[j]] == 1], g_list[[j]][1])), min(U[[j]][X_list[[j]] == 2]))
+#       mean_pred = V%*%W[[j]]
+#       current_likelihood = truncnorm_likelihood(X_list[[j]], U[[j]], g_list[[j]], mean_pred, gamma[j])
+#       for(rep in 1:10){
+#         lambda = rnorm(n_levels[[j]]-1, 0, 0.1)
+#         g_proposal = cumsum(exp(lambda))
+#         proposal_likelihood = truncnorm_likelihood(X_list[[j]], U[[j]], g_proposal, mean_pred, gamma[j])
+#         # cat("proposal_ll", proposal_likelihood, "\n")
+#         if(runif(1) < exp(proposal_likelihood - current_likelihood)){
+#           g_list[[j]] = g_proposal
+#           current_likelihood = proposal_likelihood
+#           cat("proposed g", g_proposal, ": accepted\n")
+#         }# else cat("proposed g", g_proposal, ": rejected\n")
+#       }
+    }
+    if(iter%%100==0)print(g_list[[2]])
+    # update U
+    for(j in which(type == "ordinal")){
+      U[[j]] = compute_U(X_list[[j]], g_list[[j]], mean_pred = V %*% W[[j]], gamma[j])
     }
     
     ### impute missing values in U
@@ -366,3 +396,40 @@ update_H_and_W = function(U, V, W, alpha, gamma, pi, d, M, R, iter){
 
 
 
+fill_truncnorm = function(X, g){
+  out = X
+  out[X == 0] = runif(sum(X==0), -5, g[1])
+  out[X == 1] = runif(sum(X==1), g[1], g[2])
+  out[X == length(g)] = runif(sum(X==length(g)), g[length(g)], 5)
+  return(out)
+}
+
+truncnorm_likelihood = function(X, U, g, mean_pred, gamma){
+  res = sum(log(dtruncnorm(U[X == 0], a=-Inf, b=g[1], mean=mean_pred[X==0], sd=1)))
+  res = res + sum(log(dtruncnorm(U[X == 1], a=g[1], b=g[2], mean=mean_pred[X==1], sd=1)))
+  res = res + sum(log(dtruncnorm(U[X == length(g)], a=g[length(g)], b=Inf, mean=mean_pred[X==2], sd=1)))
+  return(res)
+}
+
+compute_U = function(X, g, mean_pred, gamma){
+  out = X
+  temp0 = rtruncnorm(sum(X==0), -Inf, g[1], mean=mean_pred[X==0], sd=1/sqrt(gamma))
+  temp1 = rtruncnorm(sum(X==1), g[1], g[2], mean=mean_pred[X==1], sd=1/sqrt(gamma))
+  temp2 = rtruncnorm(sum(X==length(g)), g[length(g)], Inf, mean=mean_pred[X==length(g)], sd=1/sqrt(gamma))
+  out[X == 0] = temp0
+  out[X == 1] = temp1
+  out[X == length(g)] = temp2
+  if(sum(is.na(temp0))>0){
+    print(mean_pred[X==0])
+    print(g)
+  }
+  if(sum(is.na(temp1))>0){
+    print(mean_pred[X==1])
+    print(g)
+  }
+  if(sum(is.na(temp2))>0){
+    print(mean_pred[X==2])
+    print(g)
+  }
+  return(out)
+}
