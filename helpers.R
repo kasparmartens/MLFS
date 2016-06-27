@@ -93,19 +93,23 @@ compute_loglikelihood = function(U, V, W, gamma, y, z, beta, rho, M, N){
   return(loglik)
 }
 
-compute_loglikelihood_marginal = function(U, V, W, gamma, y, z, rho, M, N){
+compute_loglikelihood_regression = function(U, V, W, gamma, y, lambda, beta, rho, M, N){
   loglik = 0
   for(j in 1:M){
+    mu_U = V %*% W[[j]]
     # loglik = loglik + sum(dnorm(U[[j]], mu_U, 1/sqrt(gamma[j]), log=TRUE))
-    loglik = loglik + logdnormCpp(U[[j]], V %*% W[[j]], 1/gamma[j]) 
+    loglik = loglik + log_dnorm_mat(U[[j]], V %*% W[[j]], 1/gamma[j]) 
   }
-  # p(z | v) = int p(beta) p(z | v, beta) dbeta
-  loglik = loglik + dmvnorm(z, rep(0, N), diag(N) + 1/rho * V %*% t(V), log = TRUE)
-  # p(y|z)
-  prob = pnorm(z, 0, 1)
-  loglik = loglik + sum(ifelse(y==2, log(prob), log(1-prob)))
+  # p(beta)
+  loglik = loglik + sum(dnorm(beta, 0, 1/sqrt(rho), log=TRUE))
+  # p(V)
+  loglik = loglik + sum(dnorm(V, 0, 1, log=TRUE))
+  # p(y | v, beta)
+  z_mu = V %*% beta
+  loglik = loglik + sum(dnorm(y, z_mu, sqrt(1/lambda), log=TRUE))
   return(loglik)
 }
+
 
 update_state_mat = function(label_state_matrices, current_indexes){
   for(j in 1:length(label_state_matrices)){

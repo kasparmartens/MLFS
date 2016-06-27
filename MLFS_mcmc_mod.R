@@ -4,12 +4,12 @@ library(pheatmap)
 
 MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5, verbose = TRUE, 
                      burnin = 500, label_switching = FALSE, marginal_sampler = FALSE, 
-                     impute = TRUE, X_full = NULL, X_full_test = NULL, proposal_view = 1, new_method=TRUE){
+                     impute = TRUE, X_full = NULL, X_full_test = NULL, proposal_view = 1, regression = FALSE, new_method=TRUE){
   N = length(y)
   M = length(X_list)
   d = ifelse(type != "similarity", sapply(X_list, ncol), d_sim)
   C = max(y)
-  #if(sum(!(y %in% 1:max(y))) > 0) stop("y must have labels 1, 2, ..., C")
+
   if(sum(sapply(X_list, class) != "matrix") > 0) stop("X_list must contain matrices only!")
   
   # if(sum(type != "gaussian") > 0) stop("MCMC version has been implemented for Gaussian views only")
@@ -145,21 +145,8 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
     for(j in which(type == "ordinal")){
       g_list[[j]][1] = runif(1, max(U[[j]][X_list[[j]] == 0]), min(min(U[[j]][X_list[[j]] == 1]), g_list[[j]][2]))
       g_list[[j]][2] = runif(1, max(max(U[[j]][X_list[[j]] == 1], g_list[[j]][1])), min(U[[j]][X_list[[j]] == 2]))
-#       mean_pred = V%*%W[[j]]
-#       current_likelihood = truncnorm_likelihood(X_list[[j]], U[[j]], g_list[[j]], mean_pred, gamma[j])
-#       for(rep in 1:10){
-#         lambda = rnorm(n_levels[[j]]-1, 0, 0.1)
-#         g_proposal = cumsum(exp(lambda))
-#         proposal_likelihood = truncnorm_likelihood(X_list[[j]], U[[j]], g_proposal, mean_pred, gamma[j])
-#         # cat("proposal_ll", proposal_likelihood, "\n")
-#         if(runif(1) < exp(proposal_likelihood - current_likelihood)){
-#           g_list[[j]] = g_proposal
-#           current_likelihood = proposal_likelihood
-#           cat("proposed g", g_proposal, ": accepted\n")
-#         }# else cat("proposed g", g_proposal, ": rejected\n")
-#       }
     }
-    if(iter%%100==0)print(g_list[[2]])
+    
     # update U
     for(j in which(type == "ordinal")){
       U[[j]] = compute_U(X_list[[j]], g_list[[j]], mean_pred = V %*% W[[j]], gamma[j])
@@ -187,55 +174,59 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
     }
 
     
-    #     ### regression
-    #     sigma_beta_inv = rho*diag(R) + t(V)%*%V
-    #     sigma_beta = solve(sigma_beta_inv)
-    #     beta_mu = sigma_beta %*% t(V) %*% y
-    #     a_lambda = 1e-3 + 0.5*N
-    #     residuals = y - mean(y)
-    #     b_lambda = as.numeric(1e-3 + 0.5*(sum(residuals**2) - t(beta_mu)%*%sigma_beta_inv%*%beta_mu))
-    #     lambda = rgamma(1, a_lambda, b_lambda)
-    #     beta = as.numeric(t(beta_mu) + rmvt(1, b_lambda/a_lambda*sigma_beta, 2*a_lambda))
-    #     pred = V %*% beta
-    #     pred_trace[iter, ] = pred
-    
-    ### For classification follow Albert & Chib 1993
-
-    # sample beta
-    sigma_beta = solve(rho * diag(R) + t(V) %*% V)
-    mu_beta = sigma_beta %*% t(V) %*% z
-    beta = as.numeric(rmvnorm(1, mu_beta, sigma_beta))
-    beta_trace[iter, ] = beta
-    
-    # sample z
-    z_mu = V %*% beta
-    subset = (y == 2)
-    if(sum(subset)>0) z[subset] = rtruncnorm(sum(subset), a=0, mean=z_mu[subset], sd=1)
-    subset = (y == 1)
-    if(sum(subset)>0) z[subset] = rtruncnorm(sum(subset), b=0, mean=z_mu[subset], sd=1)
-    
-    z_mu_test = Vtest %*% beta
-    if(iter == 1){
-      ztest = z_mu_test      
+    ### regression
+    if(regression){
+      sigma_beta_inv = rho*diag(R) + t(V)%*%V
+      sigma_beta = solve(sigma_beta_inv)
+      beta_mu = as.numeric(sigma_beta %*% t(V) %*% y)
+      a_lambda = 1e-3 + 0.5*N
+      b_lambda = as.numeric(1e-3 + 0.5*(sum(y**2) - t(beta_mu)%*%sigma_beta_inv%*%beta_mu))
+      lambda = rgamma(1, a_lambda, b_lambda)
+      beta = as.numeric(rmvnorm(1, beta_mu, 1/lambda*sigma_beta))
+      beta_trace[iter, ] = beta
+      pred_train = V %*% beta
+      pred_trace[iter, ] = pred_train
+      pred_test = Vtest %*% beta
+      ytest = pred_test
+      pred_test_trace[iter, ] = pred_test
+      loglik_trace[iter] = compute_loglikelihood_regression(U, V, W, gamma, y, lambda, beta, rho, M, N)
+      
     } else{
-      subset = (ytest == 2)
-      if(sum(subset)>0) ztest[subset] = rtruncnorm(sum(subset), a=0, mean=z_mu_test[subset], sd=1)
-      subset = (ytest == 1)
-      if(sum(subset)>0) ztest[subset] = rtruncnorm(sum(subset), b=0, mean=z_mu_test[subset], sd=1)
+      # sample beta
+      sigma_beta = solve(rho * diag(R) + t(V) %*% V)
+      mu_beta = sigma_beta %*% t(V) %*% z
+      beta = as.numeric(rmvnorm(1, mu_beta, sigma_beta))
+      beta_trace[iter, ] = beta
+      
+      # sample z
+      z_mu = V %*% beta
+      subset = (y == 2)
+      if(sum(subset)>0) z[subset] = rtruncnorm(sum(subset), a=0, mean=z_mu[subset], sd=1)
+      subset = (y == 1)
+      if(sum(subset)>0) z[subset] = rtruncnorm(sum(subset), b=0, mean=z_mu[subset], sd=1)
+      
+      z_mu_test = Vtest %*% beta
+      if(iter == 1){
+        ztest = z_mu_test      
+      } else{
+        subset = (ytest == 2)
+        if(sum(subset)>0) ztest[subset] = rtruncnorm(sum(subset), a=0, mean=z_mu_test[subset], sd=1)
+        subset = (ytest == 1)
+        if(sum(subset)>0) ztest[subset] = rtruncnorm(sum(subset), b=0, mean=z_mu_test[subset], sd=1)
+      }
+      
+      
+      z_trace[iter, ] = z
+      
+      pred_train = rbinom(N, 1, pnorm(z)) + 1
+      pred_trace[iter, ] = pred_train
+      
+      pred_test = rbinom(Ntest, 1, pnorm(ztest)) + 1
+      ytest = pred_test
+      pred_test_trace[iter, ] = pred_test
+      loglik_trace[iter] = compute_loglikelihood(U, V, W, gamma, y, z, beta, rho, M, N)
     }
-
     
-    z_trace[iter, ] = z
-    
-    pred_train = rbinom(N, 1, pnorm(z)) + 1
-    pred_trace[iter, ] = pred_train
-    
-    pred_test = rbinom(Ntest, 1, pnorm(ztest)) + 1
-    ytest = pred_test
-    pred_test_trace[iter, ] = pred_test
-    
-    loglik_trace[iter] = compute_loglikelihood(U, V, W, gamma, y, z, beta, rho, M, N)
-    # loglik_trace[iter] = compute_loglikelihood_marginal(U, V, W, gamma, y, z, rho, M, N)
     
     if((iter > burnin) & label_switching){
       if(new_method){
@@ -255,18 +246,28 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
             V_proposal[i, ] = mu_i + random[i, ]
           }
           
-          # update z
-          z_mu = V_proposal %*% beta
-          subset = (y == 2)
-          if(sum(subset)>0) z_proposal[subset] = rtruncnorm(sum(subset), a=0, mean=z_mu[subset], sd=1)
-          subset = (y == 1)
-          if(sum(subset)>0) z_proposal[subset] = rtruncnorm(sum(subset), b=0, mean=z_mu[subset], sd=1)
-          # update beta
-          sigma_beta = solve(rho * diag(R) + t(V_proposal) %*% V_proposal)
-          mu_beta = sigma_beta %*% t(V_proposal) %*% z_proposal
-          beta_proposal = as.numeric(rmvnorm(1, mu_beta, sigma_beta))
-          l_proposal = compute_loglikelihood(U_proposal, V_proposal, W, gamma, y, z_proposal, beta_proposal, rho, M, N)
-
+          if(regression){
+            sigma_beta_inv = rho*diag(R) + t(V_proposal)%*%V_proposal
+            sigma_beta = solve(sigma_beta_inv)
+            beta_mu = as.numeric(sigma_beta %*% t(V_proposal) %*% y)
+            beta_proposal = as.numeric(rmvnorm(1, beta_mu, 1/lambda*sigma_beta))
+            l_proposal = compute_loglikelihood_regression(U_proposal, V_proposal, W, gamma, y, lambda, beta_proposal, rho, M, N)
+            
+          } else{
+            # update z
+            z_mu = V_proposal %*% beta
+            subset = (y == 2)
+            if(sum(subset)>0) z_proposal[subset] = rtruncnorm(sum(subset), a=0, mean=z_mu[subset], sd=1)
+            subset = (y == 1)
+            if(sum(subset)>0) z_proposal[subset] = rtruncnorm(sum(subset), b=0, mean=z_mu[subset], sd=1)
+            # update beta
+            sigma_beta = solve(rho * diag(R) + t(V_proposal) %*% V_proposal)
+            mu_beta = sigma_beta %*% t(V_proposal) %*% z_proposal
+            beta_proposal = as.numeric(rmvnorm(1, mu_beta, sigma_beta))
+            l_proposal = compute_loglikelihood(U_proposal, V_proposal, W, gamma, y, z_proposal, beta_proposal, rho, M, N)
+            
+          }
+          
           accept_prob = min(1, exp(l_proposal - loglik_trace[iter]))
           if(runif(1) < accept_prob){
             U = U_proposal
@@ -347,13 +348,26 @@ MLFS_mcmc = function(y, X_list, y_test, X_test, type, R, max_iter=10, d_sim = 5,
       H_trace[[iter/100]] = H
       W_trace[[iter/100]] = W
       # plot_heatmap(W, main=sprintf("Iter %s", iter), cluster_rows = FALSE)
-      if(verbose) cat(sprintf("Iter %d. Prediction accuracies: train %1.3f, test %1.3f \n", iter, mean(pred_train == y), mean(pred_test == y_test)))
+      if(verbose){
+        if(regression){
+          cat(sprintf("Iter %d. Prediction accuracies: train %1.3f, test %1.3f \n", iter, cor(pred_train, y)**2, cor(pred_test, y_test)**2))
+        } else{
+          cat(sprintf("Iter %d. Prediction accuracies: train %1.3f, test %1.3f \n", iter, mean(pred_train == y), mean(pred_test == y_test)))
+        }
+      }
     }
   }
-  pred_train = round(apply(pred_trace[-c(1:burnin), ], 2, mean))
-  pred_test = round(apply(pred_test_trace[-c(1:burnin), ], 2, mean))
-  pred_acc_train = mean(pred_train == y)
-  pred_acc_test = mean(pred_test == y_test)
+  if(regression){
+    pred_train = apply(pred_trace[-c(1:burnin), ], 2, mean)
+    pred_test = apply(pred_test_trace[-c(1:burnin), ], 2, mean)
+    pred_acc_train = cor(pred_train, y)**2
+    pred_acc_test = cor(pred_test, y_test)**2
+  } else{
+    pred_train = round(apply(pred_trace[-c(1:burnin), ], 2, mean))
+    pred_test = round(apply(pred_test_trace[-c(1:burnin), ], 2, mean))
+    pred_acc_train = mean(pred_train == y)
+    pred_acc_test = mean(pred_test == y_test)
+  }
   
   label_state_matrices = lapply(label_state_matrices, function(x)x / (max_iter - burnin))
   
